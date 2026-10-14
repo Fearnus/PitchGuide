@@ -392,6 +392,19 @@ private:
              showBasePitch == o.showBasePitch;
     }
   };
+  struct InactiveMacroPreview {
+    struct Binding {
+      Note* display;
+      const Note* source;
+      float originalMidi, originalDrift;
+    };
+    std::shared_ptr<Project> project;
+    std::function<bool()> isValid;
+    std::vector<Binding> bindings;
+    std::unique_ptr<PitchCurveRenderer> renderer;
+  };
+  std::vector<InactiveMacroPreview> inactiveMacroPreviews;
+  double lastInactiveMacroUpdate = 0.0;
   InactiveLayerKey inactiveLayerKey;
   juce::Image inactiveLayer;
   InactiveLayerKey pinnedLayerKey;
@@ -478,6 +491,7 @@ public:
   void invalidateBasePitchCache();
   void beginMacroCurvePreview(const std::vector<Note*>& notes);
   void endMacroCurvePreview();
+  void beginInactiveMacroPreview(const std::vector<TrackPitchMacroTarget>& targets);
 
 private:
   // Mouse drag throttling

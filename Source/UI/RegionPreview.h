@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include <memory>
+#include <functional>
 #include <vector>
 
 class Project;
@@ -43,6 +44,8 @@ struct MainViewRegionPreview {
   // mode with the same renderers as the active region, then greyed.
   // projectHostOffsetSeconds is the host time of this Project's zero.
   std::shared_ptr<Project> project;
+  const Project* sourceProject = nullptr;
+  int sourceFirstFrame = 0;
   double projectHostOffsetSeconds = 0.0;
 
   // The region's own audio (first channel, the one the canvas draws),
@@ -79,3 +82,12 @@ withoutPinnedRegions(const MainViewRegionPreviewList &previews) {
       filtered->push_back(region);
   return filtered;
 }
+
+// Editable projects and region windows supplied by the ARA backend for a
+// track-wide macro. Projects are deduplicated by audio modification.
+struct TrackPitchMacroTarget {
+  Project* project = nullptr;
+  std::vector<juce::Range<int>> frames;
+  std::function<bool()> isValid;
+  std::function<void(bool)> onChanged; // false: visual preview; true: commit/render
+};

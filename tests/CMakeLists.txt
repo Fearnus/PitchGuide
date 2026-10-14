@@ -49,3 +49,8 @@ endforeach()
 # The capture state machine belongs to the plug-in rather than pitchnet_core.
 target_sources(NonAraLifecycleTests PRIVATE
     ../Source/Plugin/NonAraCaptureController.cpp)
+
+add_executable(PitchMacroScopeTests PitchMacroScopeTests.cpp)
+target_link_libraries(PitchMacroScopeTests PRIVATE pitchnet_core)
+target_compile_features(PitchMacroScopeTests PRIVATE cxx_std_17)
+add_test(NAME PitchMacroScopeTests COMMAND PitchMacroScopeTests)

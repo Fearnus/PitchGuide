@@ -21,6 +21,7 @@ public:
   void setProject(Project *project);
   void dismissPitchCenterPopup();
   void showPitchCenterPopup();
+  std::function<std::vector<TrackPitchMacroTarget>()> getTrackPitchMacroTargets;
   void refreshOverview();
   void setOverviewVisible(bool visible);
   std::function<void(bool)> onOverviewVisibilityChanged;

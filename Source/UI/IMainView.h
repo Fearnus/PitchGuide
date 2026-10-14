@@ -80,6 +80,8 @@ public:
   virtual void showAnalysisProgress(double progress) = 0;
   virtual void hideAnalysisProgress() = 0;
   virtual void finishBackendRender(bool success) = 0;
+  virtual void setTrackPitchMacroTargets(
+      std::function<std::vector<TrackPitchMacroTarget>()>) {}
   virtual void setOnProjectDataChanged(std::function<void()> callback) = 0;
   virtual void setOnPitchEditFinished(std::function<void()> callback) = 0;
   virtual void setOnRequestBackendRender(

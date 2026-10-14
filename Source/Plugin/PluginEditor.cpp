@@ -156,6 +156,9 @@ MainViewRegionPreview buildRegionPreview(const Project &project,
 
   preview.project = makeRegionWindowProject(
       project, localStart, localEnd, preview.projectHostOffsetSeconds);
+  preview.sourceProject = &project;
+  preview.sourceFirstFrame = static_cast<int>(std::llround(
+      preview.projectHostOffsetSeconds * SAMPLE_RATE / HOP_SIZE));
   if (preview.project != nullptr)
     preview.projectHostOffsetSeconds += shift;
 
@@ -321,6 +324,88 @@ void PitchNetAudioProcessorEditor::setupARAMode() {
   // Listen for host selection changes to switch the canvas to the clicked
   // region (per-region Projects).
   editorView->addListener(this);
+
+  mainView->setTrackPitchMacroTargets([this, pitchDocController] {
+    std::vector<TrackPitchMacroTarget> targets;
+    const auto regions = collectAraPlaybackRegions();
+    juce::ARARegionSequence* sequence = nullptr;
+    for (auto* region : regions)
+      if (pitchnetRegionSelector(*region) == audioProcessor.getActiveAraRegionSelector())
+        sequence = region->getRegionSequence();
+    if (!sequence) return targets;
+    std::map<juce::String, size_t> indices;
+    for (auto* region : regions) {
+      if (region->getRegionSequence() != sequence) continue;
+      auto* modification = region->getAudioModification<PitchNetAudioModification>();
+      if (!modification) continue;
+      const auto key = pitchnetModificationKey(*modification);
+      std::uint64_t revision = 0;
+      bool fromCanvas = false;
+      auto* project = const_cast<Project*>(audioProcessor.getAraProjectForPreview(
+          modification, revision, fromCanvas));
+      if (project && audioProcessor.araRegionProjectNeedsSourceHydration(key)) {
+        pitchDocController->requestRegionCanvasAnalysis(region);
+        project = const_cast<Project*>(audioProcessor.getAraProjectForPreview(
+            modification, revision, fromCanvas));
+      }
+      if (!project || audioProcessor.araRegionProjectNeedsSourceHydration(key)) {
+        mainView->setStatusMessage("Wait for all regions in this track to finish analysis.");
+        return std::vector<TrackPitchMacroTarget>{};
+      }
+      auto found = indices.find(key);
+      if (found == indices.end()) {
+        const size_t index = targets.size();
+        indices.emplace(key, index);
+        TrackPitchMacroTarget target;
+        target.project = project;
+        // Resolve the current project by key rather than retaining a host object
+        // in undo history. A split/replacement invalidates this action safely.
+        auto safeEditor = juce::Component::SafePointer<PitchNetAudioProcessorEditor>(this);
+        target.isValid = [safeEditor, key, project] {
+          if (!safeEditor) return false;
+          auto* editor = safeEditor.getComponent();
+          for (auto* live : editor->collectAraPlaybackRegions())
+            if (pitchnetRegionKey(*live) == key) {
+              std::uint64_t rev = 0; bool canvas = false;
+              return editor->audioProcessor.getAraProjectForPreview(
+                  live->getAudioModification<PitchNetAudioModification>(), rev, canvas) == project;
+            }
+          return false;
+        };
+        target.onChanged = [safeEditor, key, project](bool render) {
+          if (!safeEditor) return;
+          auto* editor = safeEditor.getComponent();
+          for (auto* live : editor->collectAraPlaybackRegions())
+            if (pitchnetRegionKey(*live) == key) {
+              auto* mod = live->getAudioModification<PitchNetAudioModification>();
+              if (render) {
+                juce::MemoryBlock archive;
+                if (editor->audioProcessor.serializeAraRegionProject(key, archive))
+                  mod->setProjectArchive(archive.getData(), archive.getSize());
+                editor->audioProcessor.requestPluginProjectRender(*project, mod);
+              }
+              editor->regionPreviewCache.clear();
+              editor->lastPublishedPreviewSignature.clear();
+              editor->refreshAraRegionList();
+              return;
+            }
+        };
+        targets.push_back(std::move(target));
+        found = indices.find(key);
+      }
+      const auto* source = modification->getAudioSource();
+      const double rate = source ? source->getSampleRate() : 0.0;
+      if (rate > 0.0) {
+        const double framesPerSample = project->getAudioData().sampleRate / (rate * HOP_SIZE);
+        const int first = static_cast<int>(std::floor(
+            region->getStartInAudioModificationSamples() * framesPerSample));
+        const int last = static_cast<int>(std::ceil(
+            region->getEndInAudioModificationSamples() * framesPerSample));
+        targets[found->second].frames.emplace_back(first, last);
+      }
+    }
+    return targets;
+  });
 
   // Clicking inside an inactive region on the canvas makes it active in place.
   mainView->setOnRegionActivationRequested(

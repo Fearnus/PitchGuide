@@ -94,7 +94,8 @@ public:
       lastEditorHeight = height;
     }
   }
-  void requestPluginProjectRender(const Project &project);
+  void requestPluginProjectRender(const Project &project,
+                                  PitchNetAudioModification* target = nullptr);
   void updateProjectStateFromEditor(const Project &project);
   void requestCapturedAudioAnalysis(const juce::AudioBuffer<float> &buffer,
                                     double sampleRate,
@@ -400,6 +401,11 @@ private:
   juce::MemoryBlock cachedPluginStateBlock;
   std::uint64_t cachedPluginStateKey = 0;
   std::atomic<bool> araRenderPendingRerun{false};
+  struct ModificationRenderState {
+    std::unique_ptr<EditorController> controller;
+    std::atomic<bool> pending{false};
+  };
+  std::map<juce::String, ModificationRenderState> modificationRenders;
 
   struct AraRegionState {
     std::uint64_t revision = 0;

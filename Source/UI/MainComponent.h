@@ -146,6 +146,10 @@ public:
   void showAnalysisProgress(double progress) override;
   void hideAnalysisProgress() override;
   void finishBackendRender(bool success) override;
+  void setTrackPitchMacroTargets(
+      std::function<std::vector<TrackPitchMacroTarget>()> callback) override {
+    pianoRollView.getTrackPitchMacroTargets = std::move(callback);
+  }
   void setOnProjectDataChanged(std::function<void()> callback) override {
     onProjectDataChanged = std::move(callback);
   }

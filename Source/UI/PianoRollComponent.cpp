@@ -1,4 +1,5 @@
 #include "PianoRollComponent.h"
+#include <map>
 #include "../Utils/AppLogger.h"
 #include "../Undo/AmplitudeAction.h"
 #include "../Utils/BasePitchCurve.h"
@@ -663,9 +664,45 @@ void PianoRollComponent::beginMacroCurvePreview(const std::vector<Note*>& notes)
   pitchCurveRenderer->beginMacroPreview(notes);
 }
 
+void PianoRollComponent::beginInactiveMacroPreview(
+    const std::vector<TrackPitchMacroTarget>& targets)
+{
+  if (!trackViewMode || !regionPreviews || !inactiveMacroPreviews.empty()) return;
+  for (const auto& region : *regionPreviews) {
+    if (region.active || region.pinned || !region.project) continue;
+    auto target = std::find_if(targets.begin(), targets.end(), [&](const auto& item)
+        { return item.project == region.sourceProject; });
+    if (target == targets.end() || (target->isValid && !target->isValid())) continue;
+    InactiveMacroPreview preview;
+    preview.project = region.project;
+    preview.isValid = target->isValid;
+    std::multimap<int, const Note*> sourceNotes;
+    for (const auto& note : target->project->getNotes())
+      sourceNotes.emplace(note.getStartFrame(), &note);
+    for (auto& display : region.project->getNotes()) {
+      const auto matches = sourceNotes.equal_range(display.getStartFrame() + region.sourceFirstFrame);
+      for (auto it = matches.first; it != matches.second; ++it)
+        if (it->second->getEndFrame() == display.getEndFrame() + region.sourceFirstFrame) {
+          preview.bindings.push_back({&display, it->second,
+                                     display.getMidiNote(), display.getPitchDrift()});
+          break;
+        }
+    }
+    inactiveMacroPreviews.push_back(std::move(preview));
+  }
+  lastInactiveMacroUpdate = 0.0;
+}
+
 void PianoRollComponent::endMacroCurvePreview()
 {
   pitchCurveRenderer->endMacroPreview();
+  for (auto& preview : inactiveMacroPreviews)
+    for (const auto& binding : preview.bindings) {
+      binding.display->setMidiNoteFromPitchCorrection(binding.originalMidi);
+      binding.display->setPitchDrift(binding.originalDrift);
+    }
+  inactiveMacroPreviews.clear();
+  inactiveLayer = {};
 }
 
 void PianoRollComponent::invalidateBasePitchCache()
@@ -833,7 +870,11 @@ void PianoRollComponent::drawInactiveRegionEdits(
   key.showDeltaPitch = showDeltaPitch;
   key.showBasePitch = showBasePitch;
 
-  if (!inactiveLayer.isValid() || !(key == inactiveLayerKey))
+  const double now = juce::Time::getMillisecondCounterHiRes();
+  const bool updateMacro = !inactiveMacroPreviews.empty() &&
+                          now - lastInactiveMacroUpdate >= 33.0;
+  if (updateMacro) lastInactiveMacroUpdate = now;
+  if (!inactiveLayer.isValid() || !(key == inactiveLayerKey) || updateMacro)
   {
     inactiveLayerKey = key;
     inactiveLayer = juce::Image(juce::Image::ARGB, key.width, key.height, true);
@@ -874,8 +915,28 @@ void PianoRollComponent::drawInactiveRegionEdits(
               height)
               .getSmallestIntegerContainer());
 
+      auto* curveRenderer = previewCurveRenderer.get();
+      auto macro = std::find_if(inactiveMacroPreviews.begin(), inactiveMacroPreviews.end(),
+          [&](const auto& item) { return item.project == region.project; });
+      if (macro != inactiveMacroPreviews.end() &&
+          (!macro->isValid || macro->isValid())) {
+        if (!macro->renderer) {
+          macro->renderer = std::make_unique<PitchCurveRenderer>();
+          macro->renderer->setCoordinateMapper(coordMapper.get());
+          macro->renderer->setProject(region.project.get());
+          std::vector<Note*> notes;
+          for (const auto& binding : macro->bindings) notes.push_back(binding.display);
+          macro->renderer->beginMacroPreview(notes);
+        }
+        for (const auto& binding : macro->bindings) {
+          binding.display->setMidiNoteFromPitchCorrection(binding.source->getMidiNote());
+          binding.display->setPitchDrift(binding.source->getPitchDrift());
+        }
+        curveRenderer = macro->renderer.get();
+      } else {
+        previewCurveRenderer->setProject(region.project.get());
+      }
       previewNoteRenderer->setProject(region.project.get());
-      previewCurveRenderer->setProject(region.project.get());
       previewNoteRenderer->draw(lg, NoteRenderer::Pass::Body, false, getWidth());
 
       PitchCurveRenderer::Params params;
@@ -886,7 +947,7 @@ void PianoRollComponent::drawInactiveRegionEdits(
       params.showCleanedF0Debug = false;
       params.showVocoderF0Debug = false;
       params.componentWidth = getWidth();
-      previewCurveRenderer->draw(lg, params);
+      curveRenderer->draw(lg, params);
     }
 
     coordMapper->setScrollX(savedScrollX);
