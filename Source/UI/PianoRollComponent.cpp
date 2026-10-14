@@ -822,37 +822,55 @@ bool PianoRollComponent::previewContains(const MainViewRegionPreview &region,
   return region.contains(projectToTimeline(projectSeconds));
 }
 
-bool PianoRollComponent::isInsideActiveRegion(double timeSeconds) const
+const MainViewRegionPreview* PianoRollComponent::findTrackRegionAtPointer(
+    juce::Point<float> point, bool notesOnly) const
 {
-  if (project != nullptr)
-  {
-    const auto &ranges = project->getAudioData().playbackRegionRanges;
-    for (const auto &[start, end] : ranges)
-      if (timeSeconds >= start && timeSeconds < end)
-        return true;
-    if (!ranges.empty())
-      return false;
+  if (!trackViewMode || !regionPreviews) return nullptr;
+  const double hostTime = projectToTimeline(xToTime(point.x - pianoKeysWidth + scrollX));
+  const float worldY = point.y - headerHeight + scrollY;
+  const MainViewRegionPreview* background = nullptr;
+  // Stable drawing order, with actual note hits before empty region space.
+  // The routing/bound-region flag must not influence interaction priority.
+  for (auto it = regionPreviews->rbegin(); it != regionPreviews->rend(); ++it) {
+    const auto& region = *it;
+    if (region.pinned || !region.contains(hostTime)) continue;
+    if (!background) background = &region;
+    const bool live = region.sourceProject && region.sourceProject == project;
+    const Project* display = live ? project : region.project.get();
+    if (!display) continue;
+    const double offset = region.projectHostOffsetSeconds -
+        (live ? framesToSeconds(region.sourceFirstFrame) : 0.0);
+    for (const auto& note : display->getNotes()) {
+      if (note.isRest()) continue;
+      const double start = framesToSeconds(note.getVisualStartFrame()) + offset;
+      const double end = framesToSeconds(note.getVisualEndFrame()) + offset;
+      const float top = coordMapper->midiToY(note.getAdjustedMidiNote());
+      if (hostTime >= start && hostTime < end && worldY >= top && worldY < top + pixelsPerSemitone)
+        return &region;
+    }
   }
-
-  if (const auto *active = findActiveRegionPreview())
-    return previewContains(*active, timeSeconds);
-  return false;
+  return notesOnly ? nullptr : background;
 }
 
-const MainViewRegionPreview *
-PianoRollComponent::findInactiveRegionAt(double timeSeconds) const
+bool PianoRollComponent::prepareTrackPointer(juce::Point<float> point, bool notesOnly)
 {
-  if (!regionPreviews || regionPreviews->empty())
-    return nullptr;
-  // Where regions overlap, the active one keeps the click.
-  if (isInsideActiveRegion(timeSeconds))
-    return nullptr;
-  // Pinned tracks are for reference only and never take a click.
-  for (const auto &region : *regionPreviews)
-    if (!region.active && !region.pinned &&
-        previewContains(region, timeSeconds))
-      return &region;
-  return nullptr;
+  if (!trackViewMode || !onInactiveRegionClicked || trackGestureActive || isMouseButtonDown()) return false;
+  const float worldX = point.x - pianoKeysWidth + scrollX;
+  const float worldY = point.y - headerHeight + scrollY;
+  if (hoveredNote && pitchToolHandles && pitchToolHandles->containsLayoutPoint(worldX, worldY))
+    return false;
+  if (pitchDrawingHandler_ && pitchDrawingHandler_->hasAnchors()) return false;
+  const auto* region = findTrackRegionAtPointer(point, notesOnly);
+  if (!region) return false;
+  const double offset = region->projectHostOffsetSeconds - framesToSeconds(region->sourceFirstFrame);
+  const auto* boundWindow = findActiveRegionPreview();
+  if (region->sourceProject == project && juce::approximatelyEqual(offset, projectToTimeline(0.0)) &&
+      boundWindow && boundWindow->key == region->key)
+    return false;
+  const auto key = region->key;
+  const auto* before = project;
+  onInactiveRegionClicked(key);
+  return before != project || !juce::approximatelyEqual(offset, projectToTimeline(0.0));
 }
 
 void PianoRollComponent::drawInactiveRegionEdits(
@@ -1716,6 +1734,10 @@ bool PianoRollComponent::beginTrackGesture(const juce::MouseEvent& e)
       !e.mods.isLeftButtonDown() || !isCanvasPoint(e)) return false;
   trackGestureTargets = getTrackEditTargets();
   if (trackGestureTargets.empty()) return false;
+  const float worldX = e.x - pianoKeysWidth + scrollX;
+  const float worldY = e.y - headerHeight + scrollY;
+  if ((hoveredNote && pitchToolHandles && pitchToolHandles->containsLayoutPoint(worldX, worldY)) ||
+      findPreviewButtonNoteAt(worldX, worldY)) return false;
   Note* hit = nullptr;
   std::vector<Project*> selectedOwners;
   trackGestureNotes.clear();
@@ -1855,8 +1877,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
     // clickable so the user can move on to one that is ready.
     if (e.mods.isLeftButtonDown() && isCanvasPoint(e) && onInactiveRegionClicked)
     {
-      const float x = e.x - pianoKeysWidth + static_cast<float>(scrollX);
-      if (const auto *region = findInactiveRegionAt(xToTime(x)))
+      if (const auto *region = findTrackRegionAtPointer(e.position))
       {
         const juce::String key = region->key;
         swallowGestureUntilMouseUp = true;
@@ -1933,6 +1954,21 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
     return;
   }
 
+  if (isCanvasPoint(e) && e.mods.isAltDown() && trackViewMode)
+  {
+    if (const auto* region = findTrackRegionAtPointer(e.position, true)) {
+      const double offset = region->projectHostOffsetSeconds - framesToSeconds(region->sourceFirstFrame);
+      const auto* boundWindow = findActiveRegionPreview();
+      if (onInactiveRegionClicked && (region->sourceProject != project ||
+          !juce::approximatelyEqual(offset, projectToTimeline(0.0)) ||
+          !boundWindow || boundWindow->key != region->key)) {
+        const auto key = region->key;
+        onInactiveRegionClicked(key);
+        adjustedX = e.x - pianoKeysWidth + static_cast<float>(scrollX);
+        adjustedY = e.y - headerHeight + static_cast<float>(scrollY);
+      }
+    }
+  }
   // In Select mode, Alt inverts note-drag snapping. Keep Alt-drag panning
   // available when the gesture begins anywhere else on the canvas.
   const bool altNoteDrag =
@@ -1986,19 +2022,22 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
 
   if (beginTrackGesture(e)) return;
 
-  // A click anywhere inside an inactive region (empty space or one of its
-  // notes) makes that region the active one. When the owner can swap the
-  // region's project in right away, the same click carries on into it, so a
-  // note can be selected or dragged in one gesture.
+  // Bind the project owning this pointer hit internally, then deliver the
+  // same event to its tool. Routing does not privilege the bound region.
   if (e.mods.isLeftButtonDown() && onInactiveRegionClicked && isCanvasPoint(e))
   {
-    const double clickTime = xToTime(adjustedX);
-    if (const auto *region = findInactiveRegionAt(clickTime))
+    const auto* region = findTrackRegionAtPointer(e.position);
+    const bool handleHit = hoveredNote && pitchToolHandles &&
+        pitchToolHandles->containsLayoutPoint(adjustedX, adjustedY);
+    const double regionOffset = region ? region->projectHostOffsetSeconds -
+        framesToSeconds(region->sourceFirstFrame) : projectToTimeline(0.0);
+    const auto* boundWindow = findActiveRegionPreview();
+    if (region && !handleHit && (region->sourceProject != project ||
+        !juce::approximatelyEqual(regionOffset, projectToTimeline(0.0)) ||
+        !boundWindow || boundWindow->key != region->key))
     {
       const juce::String key = region->key; // previews may be replaced below
-      const double clickHostTime = projectToTimeline(clickTime);
-      const auto *previousProject = project;
-      const double previousOffset = coordMapper->getTimelineDisplayOffset();
+      const auto* requestedProject = region->sourceProject;
       const double previousHostScroll = getHostScrollSeconds();
       const double previousScrollY = scrollY;
 
@@ -2008,18 +2047,11 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
       // The new region may belong to another modification (new project) or be
       // a sibling of this one (same project, new window and offset). Either
       // way the host view must not have moved for the click to carry on.
-      const bool regionChanged =
-          project != previousProject ||
-          !juce::approximatelyEqual(coordMapper->getTimelineDisplayOffset(),
-                                    previousOffset);
       const bool viewStill =
-          std::abs(getHostScrollSeconds() - previousHostScroll) * pixelsPerSecond <
-              0.5 &&
+          std::abs(getHostScrollSeconds() - previousHostScroll) * pixelsPerSecond < 0.5 &&
           juce::approximatelyEqual(scrollY, previousScrollY);
-      const double newClickTime = timelineToProject(clickHostTime);
-      const bool continuesIntoRegion = project != nullptr && regionChanged &&
-                                       viewStill &&
-                                       isInsideActiveRegion(newClickTime);
+      const bool continuesIntoRegion = project != nullptr && project == requestedProject &&
+          viewStill && juce::approximatelyEqual(projectToTimeline(0.0), regionOffset);
       if (!continuesIntoRegion)
       {
         swallowGestureUntilMouseUp = true;
@@ -2031,8 +2063,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
       adjustedY = e.y - headerHeight + static_cast<float>(scrollY);
       setHoveredNote(nullptr);
     }
-    else if (trackViewMode && project != nullptr &&
-             !isInsideActiveRegion(clickTime))
+    else if (trackViewMode && project != nullptr && !region && !handleHit)
     {
       // Outside every region in Track mode: the active take's audio there is
       // hidden, so nothing may be edited.
@@ -2173,6 +2204,7 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e)
 
 void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
 {
+  if (isCanvasPoint(e) && !isModifierZoomDrag(e)) prepareTrackPointer(e.position, true);
   const bool showZoomCursor = isCanvasPoint(e) && isModifierZoomDrag(e);
   const float adjustedX =
       e.x - pianoKeysWidth + static_cast<float>(scrollX);
@@ -2192,30 +2224,19 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
     return;
   }
 
-  // Track mode hides the active take outside its region: no hover there.
-  if (!showZoomCursor && isCanvasPoint(e) && trackViewMode && project &&
-      !isInsideActiveRegion(xToTime(adjustedX)) &&
-      findInactiveRegionAt(xToTime(adjustedX)) == nullptr)
+  // Hide the bound take outside the track's playback windows, rather than
+  // treating any one region as the interaction boundary.
+  const bool overHoverControls = hoveredNote &&
+      ((pitchToolHandles && pitchToolHandles->containsLayoutPoint(adjustedX, adjustedY)) ||
+       findPreviewButtonNoteAt(adjustedX, adjustedY));
+  if (!showZoomCursor && isCanvasPoint(e) && trackViewMode && !overHoverControls &&
+      findTrackRegionAtPointer(e.position) == nullptr)
   {
     setHoveredNote(nullptr);
     loopDragHandler_->mouseMove(e, adjustedX, adjustedY);
     setMouseCursor(loopDragHandler_->isHoveringHandle()
                        ? juce::MouseCursor::LeftRightResizeCursor
                        : juce::MouseCursor::NormalCursor);
-    return;
-  }
-
-  // Other region projects route edits internally on mouse-down. They have
-  // the same canvas cursor as the region currently bound to the handlers.
-  if (!showZoomCursor && isCanvasPoint(e) &&
-      findInactiveRegionAt(xToTime(adjustedX)) != nullptr)
-  {
-    setHoveredNote(nullptr);
-    loopDragHandler_->mouseMove(e, adjustedX, adjustedY);
-    if (loopDragHandler_->isHoveringHandle())
-      setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-    else
-      setMouseCursor(juce::MouseCursor::NormalCursor);
     return;
   }
 
@@ -2447,7 +2468,8 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e)
   float adjustedY = e.y - headerHeight + static_cast<float>(scrollY);
 
   // An empty-space double click works uniformly across track regions.
-  if (findInactiveRegionAt(xToTime(adjustedX)) != nullptr) {
+  const auto* pointerRegion = findTrackRegionAtPointer(e.position);
+  if (pointerRegion && pointerRegion->sourceProject != project) {
     bool overNote = false;
     if (getTrackEditTargets)
       for (const auto& target : getTrackEditTargets())

@@ -309,8 +309,8 @@ private:
   double clampScrollX(double x) const;
   // The active region's span in project time, only in Track mode.
   std::optional<std::pair<double, double>> getTrackModeActiveSpan() const;
-  const MainViewRegionPreview *findInactiveRegionAt(double timeSeconds) const;
-  bool isInsideActiveRegion(double timeSeconds) const;
+  const MainViewRegionPreview* findTrackRegionAtPointer(juce::Point<float>, bool notesOnly = false) const;
+  bool prepareTrackPointer(juce::Point<float>, bool notesOnly = false);
   void drawLoopOverlay(juce::Graphics &g);
   void drawGameChunksDebugOverlay(juce::Graphics &g);
   void drawGameValuesDebugOverlay(juce::Graphics &g);
