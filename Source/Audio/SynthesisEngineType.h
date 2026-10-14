@@ -21,13 +21,21 @@ enum class SynthesisEngineType
  *   machine with no hardware adapter, or whose only adapter is an integrated
  *   GPU sharing system memory, starts on classic PSOLA instead - DirectML on an
  *   iGPU is barely faster than the CPU for this model, and every edit would
- *   render slowly. Machines with a discrete card (including iGPU + dGPU
- *   laptops) keep the vocoder.
+ *   render slowly. A lone adapter whose name contains "Intel" also starts on
+ *   classic, regardless of its reported memory architecture. Other machines
+ *   with a discrete card (including iGPU + dGPU laptops) keep the vocoder.
  *
  * The Windows check touches DXGI/D3D12, so the result is computed once and
  * cached for the life of the process.
  */
 SynthesisEngineType defaultSynthesisEngineType();
+
+/**
+ * Apply hardware policy when restoring an engine preference. On Windows a
+ * single Intel adapter takes precedence over the saved engine. Explicit engine
+ * changes during the session remain available.
+ */
+SynthesisEngineType synthesisEngineTypeForSavedPreference(SynthesisEngineType type);
 
 /**
  * Convert SynthesisEngineType to string for display/storage.

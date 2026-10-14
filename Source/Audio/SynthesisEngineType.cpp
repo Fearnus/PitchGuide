@@ -58,20 +58,23 @@ bool isIntegratedAdapter(IDXGIAdapter1 *adapter, bool &ok)
   return arch.UMA != FALSE;
 }
 
-/**
- * Whether a fresh Windows install should start on the vocoder: at least one
- * hardware adapter, and not a lone integrated GPU.
- */
-bool windowsHasVocoderCapableGpu()
+struct WindowsGpuCapabilities
+{
+  bool vocoderCapable = false;
+  bool singleIntelAdapter = false;
+};
+
+WindowsGpuCapabilities detectWindowsGpuCapabilities()
 {
   IDXGIFactory1 *factory = nullptr;
   if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
                                 reinterpret_cast<void **>(&factory))) ||
       factory == nullptr)
-    return false;
+    return {};
 
   int hardwareAdapters = 0;
-  bool loneAdapterIsIntegrated = false;
+  bool loneAdapterNeedsClassic = false;
+  bool loneAdapterIsIntel = false;
 
   for (UINT i = 0;; ++i)
   {
@@ -91,9 +94,14 @@ bool windowsHasVocoderCapableGpu()
       {
         bool ok = false;
         const bool integrated = isIntegratedAdapter(adapter, ok);
+        loneAdapterIsIntel =
+            juce::String(desc.Description).containsIgnoreCase("Intel");
         // An adapter D3D12 cannot open is no better for the vocoder than an
         // integrated one: DirectML would fall back to the CPU either way.
-        loneAdapterIsIntegrated = !ok || integrated;
+        // Also prefer Classic for a lone Intel adapter, even if its driver
+        // does not report UMA. Match the display name without case sensitivity.
+        loneAdapterNeedsClassic =
+            !ok || integrated || loneAdapterIsIntel;
       }
     }
     adapter->Release();
@@ -104,11 +112,15 @@ bool windowsHasVocoderCapableGpu()
 
   factory->Release();
 
-  if (hardwareAdapters == 0)
-    return false;
-  if (hardwareAdapters == 1 && loneAdapterIsIntegrated)
-    return false;
-  return true;
+  return {hardwareAdapters > 1 ||
+              (hardwareAdapters == 1 && !loneAdapterNeedsClassic),
+          hardwareAdapters == 1 && loneAdapterIsIntel};
+}
+
+const WindowsGpuCapabilities &getWindowsGpuCapabilities()
+{
+  static const auto cached = detectWindowsGpuCapabilities();
+  return cached;
 }
 #endif
 } // namespace
@@ -118,11 +130,19 @@ SynthesisEngineType defaultSynthesisEngineType()
 #if JUCE_LINUX
   return SynthesisEngineType::Psola;
 #elif defined(_WIN32)
-  static const SynthesisEngineType cached =
-      windowsHasVocoderCapableGpu() ? SynthesisEngineType::Vocoder
-                                    : SynthesisEngineType::Psola;
-  return cached;
+  return getWindowsGpuCapabilities().vocoderCapable
+             ? SynthesisEngineType::Vocoder
+             : SynthesisEngineType::Psola;
 #else
   return SynthesisEngineType::Vocoder;
 #endif
+}
+
+SynthesisEngineType synthesisEngineTypeForSavedPreference(SynthesisEngineType type)
+{
+#ifdef _WIN32
+  if (getWindowsGpuCapabilities().singleIntelAdapter)
+    return SynthesisEngineType::Psola;
+#endif
+  return type;
 }

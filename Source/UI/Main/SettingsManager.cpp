@@ -48,7 +48,8 @@ void SettingsManager::loadSettings()
 
   juce::String synthesisEngineStr = xml->getStringAttribute(
       "synthesisEngine", synthesisEngineTypeToString(synthesisEngineType));
-  synthesisEngineType = stringToSynthesisEngineType(synthesisEngineStr);
+  synthesisEngineType = synthesisEngineTypeForSavedPreference(
+      stringToSynthesisEngineType(synthesisEngineStr));
 
   if (xml->hasAttribute("gpuDeviceId"))
   {
@@ -121,7 +122,8 @@ void SettingsManager::loadConfig()
         {
           auto synthesisEngineStr =
               configObj->getProperty("synthesisEngine").toString();
-          synthesisEngineType = stringToSynthesisEngineType(synthesisEngineStr);
+          synthesisEngineType = synthesisEngineTypeForSavedPreference(
+              stringToSynthesisEngineType(synthesisEngineStr));
         }
 
         if (configObj->hasProperty("gpuDeviceId"))
