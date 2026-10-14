@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include <limits>
 
 #if JucePlugin_Enable_ARA
 
@@ -203,14 +204,16 @@ public:
     const auto startSampleIn = input.readInt64();
     const auto numChannels = input.readInt();
     const auto numSamples = input.readInt();
-    if (sampleRateIn <= 0.0 || numChannels < 0 || numSamples < 0)
+    const int bytesPerSample = sizeof(float);
+    if (!std::isfinite(sampleRateIn) || sampleRateIn <= 0.0 ||
+        numChannels < 0 ||
+        numSamples < 0 || numSamples > std::numeric_limits<int>::max() / bytesPerSample)
       return false;
 
     juce::AudioBuffer<float> restored(numChannels, numSamples);
+    const int channelBytes = numSamples * bytesPerSample;
     for (int ch = 0; ch < numChannels; ++ch)
-      if (input.read(restored.getWritePointer(ch),
-                     numSamples * static_cast<int>(sizeof(float))) !=
-          numSamples * static_cast<int>(sizeof(float)))
+      if (input.read(restored.getWritePointer(ch), channelBytes) != channelBytes)
         return false;
 
     setProcessedAudio(restored, sampleRateIn, startSampleIn);
@@ -222,12 +225,14 @@ public:
     input.readInt64();
     const auto numChannels = input.readInt();
     const auto numSamples = input.readInt();
-    if (numChannels < 0 || numSamples < 0)
+    const int bytesPerSample = sizeof(float);
+    if (numChannels < 0 || numSamples < 0 ||
+        numSamples > std::numeric_limits<int>::max() / bytesPerSample)
       return false;
     juce::HeapBlock<char> skip(static_cast<size_t>(numSamples) * sizeof(float));
+    const int channelBytes = numSamples * bytesPerSample;
     for (int ch = 0; ch < numChannels; ++ch)
-      if (input.read(skip.get(), numSamples * static_cast<int>(sizeof(float))) !=
-          numSamples * static_cast<int>(sizeof(float)))
+      if (input.read(skip.get(), channelBytes) != channelBytes)
         return false;
     return true;
   }
