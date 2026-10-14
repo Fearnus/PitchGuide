@@ -148,6 +148,7 @@ public:
   void finishBackendRender(bool success) override;
   void setTrackPitchMacroTargets(
       std::function<std::vector<TrackPitchMacroTarget>()> callback) override {
+    pianoRoll.getTrackEditTargets = callback;
     pianoRollView.getTrackPitchMacroTargets = std::move(callback);
   }
   void setOnProjectDataChanged(std::function<void()> callback) override {

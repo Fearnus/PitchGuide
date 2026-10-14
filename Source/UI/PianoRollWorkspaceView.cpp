@@ -387,13 +387,16 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
   };
   class MacroAction final : public UndoableAction {
   public:
-    explicit MacroAction(std::function<void(bool)> callback) : apply(std::move(callback)) {}
+    MacroAction(std::function<void(bool)> callback, bool trackWide)
+        : apply(std::move(callback)), trackWide(trackWide) {}
     void undo() override { apply(false); }
     void redo() override { apply(true); }
     juce::String getName() const override { return "Pitch Macro"; }
     bool requiresAudioResynthesis() const override { return false; }
+    bool ownsProjectContext() const override { return trackWide; }
   private:
     std::function<void(bool)> apply;
+    bool trackWide;
   };
   const auto activeState = std::find_if(states->begin(), states->end(),
       [activeProject](const State& state) { return state.target.project == activeProject; });
@@ -458,7 +461,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
         }
         pianoRoll.repaint();
       },
-      [safeThis, states, amount, previewEdited, refreshCurves, apply](bool accepted) {
+      [safeThis, states, amount, previewEdited, refreshCurves, apply, track](bool accepted) {
         if (!safeThis) return;
         if (accepted && !*previewEdited) return;
         safeThis->pianoRoll.endMacroCurvePreview();
@@ -481,7 +484,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
         if (!changed) return;
         apply(true);
         if (auto* undo = safeThis->pianoRoll.getUndoManager())
-          undo->addAction(std::make_unique<MacroAction>(apply));
+          undo->addAction(std::make_unique<MacroAction>(apply, track));
       }, refreshCurves);
 }
 

@@ -54,3 +54,13 @@ add_executable(PitchMacroScopeTests PitchMacroScopeTests.cpp)
 target_link_libraries(PitchMacroScopeTests PRIVATE pitchnet_core)
 target_compile_features(PitchMacroScopeTests PRIVATE cxx_std_17)
 add_test(NAME PitchMacroScopeTests COMMAND PitchMacroScopeTests)
+
+add_executable(TrackUndoTests TrackUndoTests.cpp)
+target_link_libraries(TrackUndoTests PRIVATE pitchnet_core)
+target_compile_features(TrackUndoTests PRIVATE cxx_std_17)
+add_test(NAME TrackUndoTests COMMAND TrackUndoTests)
+
+add_executable(TrackGestureTests TrackGestureTests.cpp)
+target_link_libraries(TrackGestureTests PRIVATE pitchnet_ui)
+target_compile_features(TrackGestureTests PRIVATE cxx_std_17)
+add_test(NAME TrackGestureTests COMMAND TrackGestureTests)

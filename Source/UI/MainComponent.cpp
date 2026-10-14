@@ -1319,7 +1319,7 @@ MainComponent::exchangeProject(std::unique_ptr<Project> newProject)
     toolbar.setTransportEnabled(true);
     toolbar.setLoopEnabled(project->getLoopRange().enabled);
     applyCachedHostLoopRange();
-    if (hasAnalyzedProject() && !regionActivationFromCanvas)
+    if (hasAnalyzedProject() && !regionActivationFromCanvas && !pianoRoll.isTrackViewMode())
       fitAnalyzedPitchRangeToView(*project);
   }
   repaint();

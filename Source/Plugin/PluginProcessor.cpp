@@ -1291,6 +1291,21 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
       });
 }
 
+PitchUndoManager* PitchNetAudioProcessor::getTrackUndoManager(const juce::String& key)
+{
+  activeUndoTrackKey = key;
+  auto& manager = trackUndoManagers[key];
+  if (!manager) manager = std::make_unique<PitchUndoManager>(100);
+  return manager.get();
+}
+
+void PitchNetAudioProcessor::bindAraUndoManager(PitchUndoManager* fallback)
+{
+  if (!mainComponent) return;
+  auto* manager = onAraUndoManagerRequested ? onAraUndoManagerRequested(activeRegionKey) : nullptr;
+  mainComponent->bindUndoManager(manager ? manager : fallback);
+}
+
 void PitchNetAudioProcessor::requestPluginProjectRender(
     const Project &projectToRender, PitchNetAudioModification* target) {
   bool renderActiveAraRegion = false;
@@ -1995,7 +2010,7 @@ void PitchNetAudioProcessor::setMainComponent(IMainView *mc) {
         auto displaced =
             mc->exchangeProject(std::move(activeIt->second.project));
         juce::ignoreUnused(displaced);
-        mc->bindUndoManager(activeIt->second.ensureUndoManager());
+        bindAraUndoManager(activeIt->second.ensureUndoManager());
         mc->bindRealtimeProcessor(realtimeProcessor);
         canvasShowsActiveAraRegion = true;
         restoredPersistentProject = true;
@@ -2349,6 +2364,7 @@ void PitchNetAudioProcessor::installAraRegionProject(
   // Old undo actions hold pointers to the previous notes and must not survive
   // replacement of that project. The host owns undo of region split/glue.
   state.ensureUndoManager()->clear();
+  for (auto& entry : trackUndoManagers) entry.second->removeContext(key);
   if (key == activeRegionKey && mainComponent && canvasShowsActiveAraRegion) {
     auto previous = mainComponent->exchangeProject(nullptr);
     canvasShowsActiveAraRegion = false;
@@ -2398,6 +2414,7 @@ void PitchNetAudioProcessor::setActiveAraRegion(
         activeRegionSelector = selector;
         updateActiveAraRegionProperties(region);
       }
+      bindAraUndoManager(araRegions[key].ensureUndoManager());
       return;
     }
   }
@@ -2426,7 +2443,7 @@ void PitchNetAudioProcessor::setActiveAraRegion(
   auto &incomingState = araRegions[key];
   auto *incomingUndoManager = incomingState.ensureUndoManager();
   if (mainComponent != nullptr)
-    mainComponent->bindUndoManager(incomingUndoManager);
+    bindAraUndoManager(incomingUndoManager);
 
   // Show the incoming region's project. A project analysed in this session is
   // ready immediately. A restored ARA archive has all analysis/edit data but
@@ -2823,7 +2840,7 @@ void PitchNetAudioProcessor::analyzeAraRegionForCanvas(
           auto displaced = mainComponent->exchangeProject(
               std::move(araRegions[regionKey].project));
           juce::ignoreUnused(displaced);
-          mainComponent->bindUndoManager(regionUndoManager);
+          bindAraUndoManager(regionUndoManager);
           // The host may move the region while analysis is running. The
           // analyzed Project is anchored at the position captured at launch;
           // repad every waveform/F0/note array to the latest host position
@@ -2876,7 +2893,8 @@ void PitchNetAudioProcessor::releaseAraModificationCanvas(
     // deactivated.
     araRegions[activeRegionKey].project =
         mainComponent->exchangeProject(nullptr);
-    mainComponent->bindUndoManager(undoManager.get());
+    mainComponent->bindUndoManager(activeUndoTrackKey.isNotEmpty()
+        ? getTrackUndoManager(activeUndoTrackKey) : undoManager.get());
   }
 
   activeModification = nullptr;
@@ -2928,6 +2946,7 @@ void PitchNetAudioProcessor::forgetAraModification(
   // Project and undo history. The object is still alive here, so its live key
   // is safe to read.
   const auto key = pitchnetModificationKey(*modification);
+  for (auto& entry : trackUndoManagers) entry.second->removeContext(key);
   const auto it = araRegions.find(key);
   if (it != araRegions.end()) {
     if (it->second.undoManager != nullptr)
@@ -3155,7 +3174,7 @@ bool PitchNetAudioProcessor::showAraRegionProjectIfActive(
   auto displaced =
       mainComponent->exchangeProject(std::move(it->second.project));
   juce::ignoreUnused(displaced);
-  mainComponent->bindUndoManager(regionUndoManager);
+  bindAraUndoManager(regionUndoManager);
   mainComponent->updateHostAudioTimelineOffset(0.0);
   pushTimelineDisplayOffset();
   if (auto *shown = mainComponent->getProject())
@@ -3196,6 +3215,7 @@ void PitchNetAudioProcessor::restoreAraRegionProject(const juce::String &regionK
     auto &archivedState = araRegions[regionKey];
     archivedState.project = std::move(project);
     archivedState.ensureUndoManager()->clear();
+    for (auto& entry : trackUndoManagers) entry.second->removeContext(regionKey);
 
     if (liveKey.isEmpty())
       return;
@@ -3226,7 +3246,7 @@ void PitchNetAudioProcessor::restoreAraRegionProject(const juce::String &regionK
         auto displaced = mainComponent->exchangeProject(nullptr);
         juce::ignoreUnused(displaced);
       }
-      mainComponent->bindUndoManager(liveUndoManager);
+      bindAraUndoManager(liveUndoManager);
       canvasShowsActiveAraRegion = false;
       pendingRegionCanvasAnalysisKey.clear();
       regionCanvasAnalysisPending.store(false);
@@ -3251,7 +3271,7 @@ void PitchNetAudioProcessor::restoreAraRegionProject(const juce::String &regionK
     auto displaced =
         mainComponent->exchangeProject(std::move(liveState.project));
     juce::ignoreUnused(displaced);
-    mainComponent->bindUndoManager(liveUndoManager);
+    bindAraUndoManager(liveUndoManager);
     mainComponent->updateHostAudioTimelineOffset(0.0);
     pushTimelineDisplayOffset();
     if (auto *shown = mainComponent->getProject())

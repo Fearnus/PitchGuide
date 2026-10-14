@@ -3,6 +3,8 @@
 #include "../Models/Project.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
+#include "../Undo/ContextUndoAction.h"
+#include "../Undo/PitchUndoManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -17,6 +19,7 @@ namespace
 #if JucePlugin_Enable_ARA
 // How often the Regions card re-reads the host's region list.
 constexpr int kRegionListRefreshHz = 8;
+juce::String araTrackKey(juce::ARARegionSequence*);
 #endif
 
 #if JucePlugin_Enable_ARA
@@ -118,7 +121,7 @@ std::shared_ptr<Project> makeRegionWindowProject(const Project &source,
     copy.setEndFrame(copy.getEndFrame() - firstFrame);
     copy.setSrcStartFrame(copy.getSrcStartFrame() - firstFrame);
     copy.setSrcEndFrame(copy.getSrcEndFrame() - firstFrame);
-    copy.setSelected(false); // selection belongs to the canvas, not a preview
+    copy.setSelected(note.isSelected()); // Track selection spans all projects
     notes.push_back(std::move(copy));
   }
   return window;
@@ -325,6 +328,46 @@ void PitchNetAudioProcessorEditor::setupARAMode() {
   // region (per-region Projects).
   editorView->addListener(this);
 
+  auto safeEditorForHistory = juce::Component::SafePointer<PitchNetAudioProcessorEditor>(this);
+  audioProcessor.onAraUndoManagerRequested = [safeEditorForHistory](const juce::String& key) -> PitchUndoManager* {
+    if (!safeEditorForHistory) return nullptr;
+    auto* editor = safeEditorForHistory.getComponent();
+    for (auto* region : editor->collectAraPlaybackRegions()) {
+      if (pitchnetRegionKey(*region) != key ||
+          pitchnetRegionSelector(*region) != editor->audioProcessor.getActiveAraRegionSelector()) continue;
+      auto* sequence = region->getRegionSequence();
+      if (!sequence) return nullptr;
+      auto* manager = editor->audioProcessor.getTrackUndoManager(araTrackKey(sequence));
+      const juce::String regionName(region->getName());
+      const juce::String label = regionName.isNotEmpty() ? regionName : "Clip";
+      const auto trackKey = araTrackKey(sequence);
+      manager->decorateAction = [safeEditorForHistory, key, label, trackKey](std::unique_ptr<UndoableAction> action) {
+        if (action->ownsProjectContext()) return action;
+        auto* editor = safeEditorForHistory.getComponent();
+        if (!editor) return std::unique_ptr<UndoableAction>{};
+        Project* expected = editor->mainView->getProject();
+        auto prepare = [safeEditorForHistory, key, expected, trackKey] {
+          if (!safeEditorForHistory) return false;
+          auto* editor = safeEditorForHistory.getComponent();
+          for (auto* live : editor->collectAraPlaybackRegions()) {
+            if (pitchnetRegionKey(*live) != key || araTrackKey(live->getRegionSequence()) != trackKey) continue;
+            std::uint64_t revision = 0; bool canvas = false;
+            if (editor->audioProcessor.getAraProjectForPreview(
+                live->getAudioModification<PitchNetAudioModification>(), revision, canvas) != expected)
+              return false;
+            editor->activateAraRegion(live, false);
+            return true;
+          }
+          return false;
+        };
+        return std::unique_ptr<UndoableAction>(new ContextUndoAction(
+            std::move(action), key, label, std::move(prepare)));
+      };
+      return manager;
+    }
+    return nullptr;
+  };
+
   mainView->setTrackPitchMacroTargets([this, pitchDocController] {
     std::vector<TrackPitchMacroTarget> targets;
     const auto regions = collectAraPlaybackRegions();
@@ -447,6 +490,7 @@ void PitchNetAudioProcessorEditor::setupARAMode() {
   // ARA playback/bounce must keep working after the UI is closed.
   audioProcessor.setAraDocumentController(pitchDocController);
   pitchDocController->setEditorProcessor(&audioProcessor);
+  audioProcessor.bindAraUndoManager(nullptr);
   // Persistence callbacks are owned by the processor (set in didBindToARA) so
   // that saved-project restore works with the UI closed; the editor must not
   // install editor-capturing callbacks that would dangle on close.
@@ -1134,11 +1178,11 @@ void PitchNetAudioProcessorEditor::publishAraRegionPreviews(
     // The active region is drawn live from the canvas; its preview only
     // carries its range. Siblings of the active modification read the live
     // canvas Project, other modifications their stored Project.
-    const Project *project =
-        isActive ? nullptr
-                 : audioProcessor.getAraProjectForPreview(
-                       region->getAudioModification<PitchNetAudioModification>(),
-                       revision, fromCanvas);
+    // Track gestures need the live source binding even when the region is
+    // drawn directly from the canvas rather than from a cached window.
+    const Project* sourceProject = audioProcessor.getAraProjectForPreview(
+        region->getAudioModification<PitchNetAudioModification>(), revision, fromCanvas);
+    const Project* project = isActive ? nullptr : sourceProject;
 
     RegionPreviewCacheEntry cacheEntry;
     const auto cached = regionPreviewCache.find(regionKey);
@@ -1172,7 +1216,14 @@ void PitchNetAudioProcessorEditor::publishAraRegionPreviews(
     preview.startSeconds = start;
     preview.endSeconds = end;
     preview.active = isActive;
+    if (isActive) {
+      preview.sourceProject = sourceProject;
+      preview.sourceFirstFrame = 0;
+      preview.projectHostOffsetSeconds = start - startInModification;
+    }
     preview.pinned = pinned;
+    if (pinned && preview.project)
+      for (auto& note : preview.project->getNotes()) note.setSelected(false);
     preview.outlineColour = outlineColour;
     previews->push_back(preview);
 
@@ -1182,7 +1233,7 @@ void PitchNetAudioProcessorEditor::publishAraRegionPreviews(
               << (isActive ? "A" : "-") << (fromCanvas ? "C" : "S") << "\t"
               << juce::String::toHexString(
                      static_cast<juce::int64>(
-                         reinterpret_cast<std::uintptr_t>(project)))
+                         reinterpret_cast<std::uintptr_t>(sourceProject)))
               << "\t" << juce::String(static_cast<juce::int64>(revision));
     if (pinned)
       signature << "\tP" << outlineColour.toString();

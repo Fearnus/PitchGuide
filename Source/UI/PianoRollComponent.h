@@ -405,6 +405,18 @@ private:
   };
   std::vector<InactiveMacroPreview> inactiveMacroPreviews;
   double lastInactiveMacroUpdate = 0.0;
+  struct TrackGestureNote {
+    Note* note;
+    Project* owner;
+    float midi, finalMidi;
+  };
+  bool trackGestureActive = false, trackBoxSelecting = false;
+  juce::Point<float> trackGestureStart, trackGestureEnd;
+  std::vector<TrackPitchMacroTarget> trackGestureTargets;
+  std::vector<TrackGestureNote> trackGestureNotes;
+  std::vector<const Note*> trackBoxInitialSelection;
+  std::vector<juce::Rectangle<float>> trackNoteBounds(const Note&, const Project&) const;
+  void syncTrackPreviewSelection();
   InactiveLayerKey inactiveLayerKey;
   juce::Image inactiveLayer;
   InactiveLayerKey pinnedLayerKey;
@@ -491,6 +503,10 @@ public:
   void invalidateBasePitchCache();
   void beginMacroCurvePreview(const std::vector<Note*>& notes);
   void endMacroCurvePreview();
+  std::function<std::vector<TrackPitchMacroTarget>()> getTrackEditTargets;
+  bool beginTrackGesture(const juce::MouseEvent&);
+  void updateTrackGesture(const juce::MouseEvent&);
+  void finishTrackGesture();
   void beginInactiveMacroPreview(const std::vector<TrackPitchMacroTarget>& targets);
 
 private:

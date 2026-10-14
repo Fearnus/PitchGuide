@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <algorithm>
 
 /**
  * Simple undo manager for the pitch editor.
@@ -15,6 +16,8 @@ public:
     
     void addAction(std::unique_ptr<UndoableAction> action)
     {
+        if (decorateAction) action = decorateAction(std::move(action));
+        if (!action) return;
         // Clear redo stack when new action is added
         redoStack.clear();
         redoStack.shrink_to_fit();
@@ -89,6 +92,17 @@ public:
         return redoStack.empty() ? "" : redoStack.back()->getName();
     }
     
+    void removeContext(const juce::String& key)
+    {
+        const auto remove = [&key](auto& stack) {
+            stack.erase(std::remove_if(stack.begin(), stack.end(), [&key](const auto& action)
+                { return action->belongsToContext(key); }), stack.end());
+        };
+        remove(undoStack);
+        remove(redoStack);
+        if (onHistoryChanged) onHistoryChanged();
+    }
+    std::function<std::unique_ptr<UndoableAction>(std::unique_ptr<UndoableAction>)> decorateAction;
     std::function<void()> onHistoryChanged;
     
 private:

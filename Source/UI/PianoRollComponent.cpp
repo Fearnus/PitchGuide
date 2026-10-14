@@ -1,5 +1,6 @@
 #include "PianoRollComponent.h"
 #include <map>
+#include "../Utils/PitchMacroScope.h"
 #include "../Utils/AppLogger.h"
 #include "../Undo/AmplitudeAction.h"
 #include "../Utils/BasePitchCurve.h"
@@ -260,7 +261,7 @@ PianoRollComponent::PianoRollComponent()
   // active region can never show up in them.
   previewNoteRenderer = std::make_unique<NoteRenderer>();
   previewCurveRenderer = std::make_unique<PitchCurveRenderer>();
-  previewNoteRenderer->setGreyscale(true);
+  previewNoteRenderer->setGreyscale(false);
   scrollZoomController = std::make_unique<ScrollZoomController>();
   pitchEditor = std::make_unique<PitchEditor>();
   boxSelector = std::make_unique<BoxSelector>();
@@ -580,6 +581,11 @@ void PianoRollComponent::paint(juce::Graphics &g)
     }
   }
 
+  if (trackGestureActive && trackBoxSelecting) {
+    const auto rect = juce::Rectangle<float>(trackGestureStart, trackGestureEnd);
+    g.setColour(juce::Colours::white.withAlpha(0.05f)); g.fillRect(rect);
+    g.setColour(juce::Colours::white.withAlpha(0.25f)); g.drawRect(rect);
+  }
   // Draw timeline (above grid, scrolls horizontally)
   drawTimeline(g);
   drawLoopTimeline(g);
@@ -738,6 +744,7 @@ void PianoRollComponent::drawGrid(juce::Graphics &g, bool drawRowBackgrounds,
 
 void PianoRollComponent::drawAudioSourceRegionOverlay(juce::Graphics &g)
 {
+  if (trackViewMode) return;
   if (!project)
     return;
 
@@ -953,14 +960,14 @@ void PianoRollComponent::drawInactiveRegionEdits(
     coordMapper->setScrollX(savedScrollX);
     previewNoteRenderer->setProject(nullptr);
     previewCurveRenderer->setProject(nullptr);
-    inactiveLayer.desaturate();
+
   }
 
   // World coordinates: the graphics origin is already scrolled. JUCE draws
   // images with the current colour's opacity, and the region outlines just
   // set a faint one - so set it explicitly. Slightly below full opacity to
   // keep inactive regions a step darker than the active one.
-  constexpr float inactiveLayerOpacity = 0.6f;
+  constexpr float inactiveLayerOpacity = 1.0f;
   juce::Graphics::ScopedSaveState opaque(g);
   g.setOpacity(inactiveLayerOpacity);
   g.drawImageAt(inactiveLayer, static_cast<int>(scrollX),
@@ -1107,26 +1114,11 @@ void PianoRollComponent::drawRegionPreviews(juce::Graphics &g)
     const float x1 = hx(region.startSeconds);
     const float x2 = hx(region.endSeconds);
 
-    if (region.active)
-    {
-      if (!projectDrawsActiveBackdrop)
-      {
-        g.setColour(juce::Colours::white.withAlpha(0.04f));
-        g.fillRect(x1, 0.0f, x2 - x1, height);
-        g.setColour(juce::Colours::white.withAlpha(0.25f));
-        g.fillRect(x1 - 0.5f, 0.0f, 1.0f, height);
-        g.fillRect(x2 - 0.5f, 0.0f, 1.0f, height);
-      }
-    }
-    else
-    {
-      // No backdrop: only the active region carries the backdrop colour.
-      g.setColour(juce::Colours::white.withAlpha(0.12f));
-      g.fillRect(x1 - 0.5f, 0.0f, 1.0f, height);
-      g.fillRect(x2 - 0.5f, 0.0f, 1.0f, height);
-      // The region's notes and pitch curve are drawn by
-      // drawInactiveRegionEdits() with the active region's renderers.
-    }
+    g.setColour(juce::Colours::white.withAlpha(0.04f));
+    g.fillRect(x1, 0.0f, x2 - x1, height);
+    g.setColour(juce::Colours::white.withAlpha(0.25f));
+    g.fillRect(x1 - 0.5f, 0.0f, 1.0f, height);
+    g.fillRect(x2 - 0.5f, 0.0f, 1.0f, height);
 
   }
 }
@@ -1680,6 +1672,179 @@ void PianoRollComponent::applyModifierPanDrag(const juce::MouseEvent &e)
     onScrollChanged(scrollX);
 }
 
+std::vector<juce::Rectangle<float>> PianoRollComponent::trackNoteBounds(const Note& note, const Project& owner) const
+{
+  std::vector<juce::Rectangle<float>> result;
+  if (!regionPreviews) return result;
+  for (const auto& region : *regionPreviews) {
+    if (region.pinned || region.sourceProject != &owner) continue;
+    const double offset = region.projectHostOffsetSeconds - framesToSeconds(region.sourceFirstFrame);
+    const double start = framesToSeconds(note.getVisualStartFrame()) + offset;
+    const double end = framesToSeconds(note.getVisualEndFrame()) + offset;
+    if (end <= region.startSeconds || start >= region.endSeconds) continue;
+    const float left = pianoKeysWidth + timeToX(timelineToProject(std::max(start, region.startSeconds))) - scrollX;
+    const float right = pianoKeysWidth + timeToX(timelineToProject(std::min(end, region.endSeconds))) - scrollX;
+    const float y = headerHeight + coordMapper->midiToY(note.getAdjustedMidiNote()) - scrollY;
+    result.emplace_back(left, y, std::max(4.0f, right - left), pixelsPerSemitone);
+  }
+  return result;
+}
+
+void PianoRollComponent::syncTrackPreviewSelection()
+{
+  if (regionPreviews)
+    for (const auto& region : *regionPreviews) {
+      if (region.active || region.pinned || !region.project || !region.sourceProject) continue;
+      auto target = std::find_if(trackGestureTargets.begin(), trackGestureTargets.end(),
+          [&](const auto& item) { return item.project == region.sourceProject; });
+      if (target == trackGestureTargets.end() || (target->isValid && !target->isValid())) continue;
+      for (auto& copy : region.project->getNotes())
+        for (const auto& note : target->project->getNotes())
+          if (note.getStartFrame() == copy.getStartFrame() + region.sourceFirstFrame &&
+              note.getEndFrame() == copy.getEndFrame() + region.sourceFirstFrame) {
+            copy.setSelected(note.isSelected());
+            break;
+          }
+    }
+  inactiveLayer = {};
+  repaint();
+}
+
+bool PianoRollComponent::beginTrackGesture(const juce::MouseEvent& e)
+{
+  if (!trackViewMode || editMode != EditMode::Select || !getTrackEditTargets ||
+      !e.mods.isLeftButtonDown() || !isCanvasPoint(e)) return false;
+  trackGestureTargets = getTrackEditTargets();
+  if (trackGestureTargets.empty()) return false;
+  Note* hit = nullptr;
+  std::vector<Project*> selectedOwners;
+  trackGestureNotes.clear();
+  for (auto& target : trackGestureTargets) {
+    for (auto* note : collectPitchMacroNotes(*target.project, true, target.frames)) {
+      for (const auto& bounds : trackNoteBounds(*note, *target.project))
+        if (bounds.contains(e.position)) hit = note;
+      if (note->isSelected()) {
+        trackGestureNotes.push_back({note, target.project, note->getMidiNote(), note->getMidiNote()});
+        if (std::find(selectedOwners.begin(), selectedOwners.end(), target.project) == selectedOwners.end())
+          selectedOwners.push_back(target.project);
+      }
+    }
+  }
+  const bool additive = e.mods.isCommandDown() || e.mods.isCtrlDown() || e.mods.isShiftDown();
+  if (hit && additive) {
+    hit->setSelected(!hit->isSelected());
+    syncTrackPreviewSelection();
+    trackGestureNotes.clear();
+  } else if (hit && hit->isSelected() && selectedOwners.size() > 1) {
+    std::vector<Note*> activeNotes;
+    for (const auto& item : trackGestureNotes)
+      if (item.owner == project) activeNotes.push_back(item.note);
+    beginMacroCurvePreview(activeNotes);
+    beginInactiveMacroPreview(trackGestureTargets);
+  } else if (!hit) {
+    trackBoxSelecting = true;
+    trackBoxInitialSelection.clear();
+    if (additive)
+      for (const auto& item : trackGestureNotes) trackBoxInitialSelection.push_back(item.note);
+    if (!additive)
+      for (auto& target : trackGestureTargets)
+        for (auto& note : target.project->getNotes()) note.setSelected(false);
+    trackGestureNotes.clear();
+    syncTrackPreviewSelection();
+  } else {
+    if (!hit->isSelected())
+      for (auto& target : trackGestureTargets)
+        for (auto& note : target.project->getNotes()) note.setSelected(false);
+    syncTrackPreviewSelection();
+    return false;
+  }
+  trackGestureActive = true;
+  trackGestureStart = trackGestureEnd = e.position;
+  return true;
+}
+
+void PianoRollComponent::updateTrackGesture(const juce::MouseEvent& e)
+{
+  trackGestureEnd = e.position;
+  if (trackBoxSelecting) {
+    const auto rect = juce::Rectangle<float>(trackGestureStart, trackGestureEnd);
+    for (auto& target : trackGestureTargets) {
+      if (target.isValid && !target.isValid()) continue;
+      for (auto* note : collectPitchMacroNotes(*target.project, true, target.frames)) {
+        bool selected = std::find(trackBoxInitialSelection.begin(), trackBoxInitialSelection.end(), note)
+                        != trackBoxInitialSelection.end();
+        for (const auto& bounds : trackNoteBounds(*note, *target.project))
+          selected |= rect.intersects(bounds);
+        note->setSelected(selected);
+      }
+    }
+    syncTrackPreviewSelection();
+  } else {
+    float delta = (trackGestureStart.y - e.position.y) / pixelsPerSemitone;
+    if (snapToSemitoneDrag != e.mods.isAltDown()) delta = std::round(delta);
+    for (auto& item : trackGestureNotes) {
+      auto target = std::find_if(trackGestureTargets.begin(), trackGestureTargets.end(),
+          [&](const auto& target) { return target.project == item.owner; });
+      if (target != trackGestureTargets.end() && (!target->isValid || target->isValid()))
+        item.note->setMidiNote(item.midi + delta);
+    }
+    repaint();
+  }
+}
+
+void PianoRollComponent::finishTrackGesture()
+{
+  trackGestureActive = false;
+  trackBoxSelecting = false;
+  endMacroCurvePreview();
+  auto notes = trackGestureNotes;
+  auto targets = trackGestureTargets;
+  notes.erase(std::remove_if(notes.begin(), notes.end(), [&](const auto& item) {
+    auto target = std::find_if(targets.begin(), targets.end(), [&](const auto& target)
+        { return target.project == item.owner; });
+    return target == targets.end() || (target->isValid && !target->isValid());
+  }), notes.end());
+  for (auto& item : notes) item.finalMidi = item.note->getMidiNote();
+  if (std::none_of(notes.begin(), notes.end(), [](const auto& item) {
+      return std::abs(item.finalMidi - item.midi) > 0.0001f; })) { repaint(); return; }
+  auto safe = juce::Component::SafePointer<PianoRollComponent>(this);
+  auto apply = [safe, notes, targets](bool redo) {
+    if (!safe) return;
+    for (const auto& target : targets) {
+      if (target.isValid && !target.isValid()) continue;
+      int first = std::numeric_limits<int>::max(), last = -1;
+      for (const auto& item : notes) {
+        if (item.owner != target.project) continue;
+        item.note->setMidiNote(redo ? item.finalMidi : item.midi);
+        item.note->markDirty(); item.note->markSynthDirty();
+        first = std::min(first, item.note->getStartFrame());
+        last = std::max(last, item.note->getEndFrame());
+      }
+      if (last < first) continue;
+      PitchCurveProcessor::rebuildBaseFromNotes(*target.project);
+      target.project->markNoteEditDirtyRange(first, last);
+      target.project->setModified(true);
+      if (target.project == safe->project) {
+        if (safe->onPitchEdited) safe->onPitchEdited();
+        if (safe->onPitchEditFinished) safe->onPitchEditFinished();
+      } else if (target.onChanged) target.onChanged(true);
+    }
+    safe->invalidateBasePitchCache(); safe->repaint();
+  };
+  class TrackDragAction final : public UndoableAction {
+  public:
+    explicit TrackDragAction(std::function<void(bool)> apply) : apply(std::move(apply)) {}
+    void undo() override { apply(false); }
+    void redo() override { apply(true); }
+    juce::String getName() const override { return "Drag Track Notes"; }
+    bool ownsProjectContext() const override { return true; }
+    bool requiresAudioResynthesis() const override { return false; }
+  private: std::function<void(bool)> apply;
+  };
+  apply(true);
+  if (undoManager) undoManager->addAction(std::make_unique<TrackDragAction>(apply));
+}
+
 void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
 {
   swallowGestureUntilMouseUp = false;
@@ -1819,6 +1984,8 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
   if (e.y < headerHeight || e.x < pianoKeysWidth)
     return;
 
+  if (beginTrackGesture(e)) return;
+
   // A click anywhere inside an inactive region (empty space or one of its
   // notes) makes that region the active one. When the owner can swap the
   // region's project in right away, the same click carries on into it, so a
@@ -1893,6 +2060,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e)
 
 void PianoRollComponent::mouseDrag(const juce::MouseEvent &e)
 {
+  if (trackGestureActive) { updateTrackGesture(e); return; }
   if (e.mods.isPopupMenu())
     return;
   if (swallowGestureUntilMouseUp)
@@ -1952,6 +2120,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e)
 
 void PianoRollComponent::mouseUp(const juce::MouseEvent &e)
 {
+  if (trackGestureActive) { finishTrackGesture(); return; }
   if (e.mods.isPopupMenu())
     return;
   if (swallowGestureUntilMouseUp)
@@ -2036,8 +2205,8 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
     return;
   }
 
-  // Inactive regions are read-only previews: no note hover, and a pointing
-  // hand to show that a click will make the region active.
+  // Other region projects route edits internally on mouse-down. They have
+  // the same canvas cursor as the region currently bound to the handlers.
   if (!showZoomCursor && isCanvasPoint(e) &&
       findInactiveRegionAt(xToTime(adjustedX)) != nullptr)
   {
@@ -2046,7 +2215,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
     if (loopDragHandler_->isHoveringHandle())
       setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
     else
-      setMouseCursor(juce::MouseCursor::PointingHandCursor);
+      setMouseCursor(juce::MouseCursor::NormalCursor);
     return;
   }
 
@@ -2277,10 +2446,18 @@ void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e)
   float adjustedX = e.x - pianoKeysWidth + static_cast<float>(scrollX);
   float adjustedY = e.y - headerHeight + static_cast<float>(scrollY);
 
-  // Inactive regions are read-only: the first click already asked for the
-  // region to become active, so do not also toggle transport there.
-  if (findInactiveRegionAt(xToTime(adjustedX)) != nullptr)
+  // An empty-space double click works uniformly across track regions.
+  if (findInactiveRegionAt(xToTime(adjustedX)) != nullptr) {
+    bool overNote = false;
+    if (getTrackEditTargets)
+      for (const auto& target : getTrackEditTargets())
+        for (auto* note : collectPitchMacroNotes(*target.project, true, target.frames))
+          for (const auto& bounds : trackNoteBounds(*note, *target.project))
+            overNote |= bounds.contains(e.position);
+    if (!overNote && onCanvasEmptyDoubleClick)
+      onCanvasEmptyDoubleClick(std::max(getTimelineStart(), xToTime(adjustedX)));
     return;
+  }
 
   // Anchors may be placed vertically outside their owning note rectangle, so
   // give Pitch Drawing mode first chance to remove one before the empty-canvas

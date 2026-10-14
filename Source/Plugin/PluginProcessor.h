@@ -94,6 +94,9 @@ public:
       lastEditorHeight = height;
     }
   }
+  PitchUndoManager* getTrackUndoManager(const juce::String& key);
+  std::function<PitchUndoManager*(const juce::String&)> onAraUndoManagerRequested;
+  void bindAraUndoManager(PitchUndoManager* fallback);
   void requestPluginProjectRender(const Project &project,
                                   PitchNetAudioModification* target = nullptr);
   void updateProjectStateFromEditor(const Project &project);
@@ -384,6 +387,8 @@ private:
   std::unique_ptr<EditorController> araAnalysisController;
   std::unique_ptr<EditorController> araIncrementalAnalysisController;
   std::unique_ptr<PitchUndoManager> undoManager;
+  std::map<juce::String, std::unique_ptr<PitchUndoManager>> trackUndoManagers;
+  juce::String activeUndoTrackKey;
   MainViewViewportState viewportState;
   std::uintptr_t araAnalysisSourceKey = 0;
   bool araAnalysisLoading = false;
