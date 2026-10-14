@@ -68,11 +68,24 @@ void OverviewPanel::paint(juce::Graphics &g) {
   if (localBounds.isEmpty())
     return;
 
+  // Navigation only changes the overlay. Rebuild the static image when its
+  // timeline mapping changes, including a duration change caused by zooming.
+  const auto state = getViewState ? getViewState() : ViewState{};
+  if (state.totalTime != cachedViewState.totalTime ||
+      state.trackMode != cachedViewState.trackMode ||
+      state.viewStartSeconds != cachedViewState.viewStartSeconds ||
+      state.displayOffset != cachedViewState.displayOffset ||
+      state.hasActiveSpan != cachedViewState.hasActiveSpan ||
+      state.activeSpanStart != cachedViewState.activeSpanStart ||
+      state.activeSpanEnd != cachedViewState.activeSpanEnd)
+    cacheDirty = true;
+
   if (staticCache.isNull() || staticCache.getWidth() != getWidth() ||
       staticCache.getHeight() != getHeight() || cacheDirty) {
     staticCache = juce::Image(juce::Image::ARGB, getWidth(), getHeight(), true);
     juce::Graphics cacheGraphics(staticCache);
     paintStaticContent(cacheGraphics);
+    cachedViewState = state;
     cacheDirty = false;
   }
 

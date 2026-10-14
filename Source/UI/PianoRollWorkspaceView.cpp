@@ -498,6 +498,12 @@ void PianoRollWorkspaceView::refreshOverview()
     overviewPanel.invalidateThumbnailCache();
 }
 
+void PianoRollWorkspaceView::repaintOverviewViewport()
+{
+  if (overviewVisible)
+    overviewPanel.repaint();
+}
+
 void PianoRollWorkspaceView::setShowSegmentsDebug(bool show)
 {
   overviewPanel.setShowSegmentsDebug(show);

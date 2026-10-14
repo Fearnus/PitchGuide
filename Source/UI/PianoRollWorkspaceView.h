@@ -23,6 +23,7 @@ public:
   void showPitchCenterPopup();
   std::function<std::vector<TrackPitchMacroTarget>()> getTrackPitchMacroTargets;
   void refreshOverview();
+  void repaintOverviewViewport();
   void setOverviewVisible(bool visible);
   std::function<void(bool)> onOverviewVisibilityChanged;
   void setRegionPreviews(MainViewRegionPreviewList previews);

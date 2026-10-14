@@ -976,12 +976,12 @@ MainComponent::MainComponent(bool enableAudioDevice)
   pianoRoll.onZoomChanged = [this](float pps)
   {
     onZoomChanged(pps);
-    pianoRollView.refreshOverview();
+    pianoRollView.repaintOverviewViewport();
   };
   pianoRoll.onScrollChanged = [this](double x)
   {
     juce::ignoreUnused(x);
-    pianoRollView.refreshOverview();
+    pianoRollView.repaintOverviewViewport();
   };
   pianoRoll.onLoopRangeChanged = [this](const LoopRange &range)
   {
@@ -2792,7 +2792,7 @@ void MainComponent::onZoomChanged(float pixelsPerSecond)
   // Update all components with zoom centered on cursor
   pianoRoll.setPixelsPerSecond(pixelsPerSecond, true);
   toolbar.setZoom(pixelsPerSecond);
-  pianoRollView.refreshOverview();
+  pianoRollView.repaintOverviewViewport();
 
   isSyncingZoom = false;
 }
@@ -3430,7 +3430,7 @@ void MainComponent::focusTimelineRange(double startSeconds, double endSeconds)
     newScrollX -= static_cast<double>(visibleWidth) * 0.12;
 
   pianoRoll.setScrollX(newScrollX); // clamps to the timeline start/end
-  pianoRollView.refreshOverview();
+  pianoRollView.repaintOverviewViewport();
 
   // Let a host selection visually win over the playback follow cursor for a
   // short moment, even if the transport is running elsewhere.

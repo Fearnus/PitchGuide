@@ -89,6 +89,7 @@ private:
   Project *project = nullptr;
   MainViewRegionPreviewList regionPreviews;
   juce::Image staticCache;
+  ViewState cachedViewState;
   bool cacheDirty = true;
   bool drawBackground = true;
   bool showSegmentsDebug = false;
