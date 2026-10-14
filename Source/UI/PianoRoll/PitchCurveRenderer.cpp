@@ -2,11 +2,41 @@
 #include "PitchEditor.h"
 #include "States/SelectHandler.h"
 #include "../../Utils/BasePitchCurve.h"
+#include "../../Utils/PitchCurveProcessor.h"
 #include "../../Utils/Constants.h"
 #include "../../Utils/UI/Theme.h"
 
 #include <algorithm>
 #include <cmath>
+
+void PitchCurveRenderer::beginMacroPreview(const std::vector<Note*>& notes)
+{
+  if (!project || !macroPreview.empty()) return;
+  updateBasePitchCacheIfNeeded();
+  for (const auto* note : notes)
+    if (note)
+    {
+      macroPreview.emplace(note, MacroPreview{note->getMidiNote(), note->getPitchDrift(),
+          PitchCurveProcessor::getDriftPreviewResponse(*project, *note),
+          note->getMidiNote(), note->getPitchDrift()});
+      macroNotes.push_back(note);
+    }
+  std::sort(macroNotes.begin(), macroNotes.end(), [](const Note* a, const Note* b)
+  { return a->getStartFrame() < b->getStartFrame(); });
+  lastMacroPreviewUpdate = 0.0;
+}
+
+float PitchCurveRenderer::macroOffset(const Note& note, int frame, bool includeDrift) const
+{
+  const auto it = macroPreview.find(&note);
+  if (it == macroPreview.end()) return 0.0f;
+  const auto& preview = it->second;
+  float offset = preview.displayMidi - preview.midi;
+  const int local = frame - note.getStartFrame();
+  if (includeDrift && local >= 0 && local < static_cast<int>(preview.driftResponse.size()))
+    offset += (preview.displayDrift - preview.drift) * preview.driftResponse[static_cast<size_t>(local)];
+  return offset;
+}
 
 void PitchCurveRenderer::invalidateBasePitchCache()
 {
@@ -88,6 +118,16 @@ void PitchCurveRenderer::draw(juce::Graphics &g, const Params &params)
   if (params.hidePitchCurves)
     return;
 
+  const double now = juce::Time::getMillisecondCounterHiRes();
+  if (!macroPreview.empty() && now - lastMacroPreviewUpdate >= 33.0)
+  {
+    for (auto& entry : macroPreview)
+    {
+      entry.second.displayMidi = entry.first->getMidiNote();
+      entry.second.displayDrift = entry.first->getPitchDrift();
+    }
+    lastMacroPreviewUpdate = now;
+  }
   const auto &audioData = project->getAudioData();
   if (audioData.f0.empty())
     return;
@@ -189,7 +229,22 @@ void PitchCurveRenderer::draw(juce::Graphics &g, const Params &params)
       if (!continuesPreviousPath)
         strokeCurrentPath();
 
-      for (int i = startFrame; i < endFrame; ++i)
+      // Clip long notes to the viewport before constructing the path.
+      const int sourceLength = std::max(1, endFrame - startFrame);
+      const float visualLength = visualEndFrame - visualStartFrame;
+      int firstVisible = startFrame;
+      int lastVisible = endFrame;
+      if (visualLength > 0.0f)
+      {
+        const double left = scrollX / pixelsPerSecond * audioData.sampleRate / HOP_SIZE;
+        const double right = (scrollX + params.componentWidth) / pixelsPerSecond
+                             * audioData.sampleRate / HOP_SIZE;
+        firstVisible = std::max(startFrame, startFrame + static_cast<int>(
+            std::floor((left - visualStartFrame) / visualLength * sourceLength)) - 1);
+        lastVisible = std::min(endFrame, startFrame + static_cast<int>(
+            std::ceil((right - visualStartFrame) / visualLength * sourceLength)) + 1);
+      }
+      for (int i = firstVisible; i < lastVisible; ++i)
       {
         float finalMidi = 0.0f;
         if (params.midiCurveOverride &&
@@ -211,12 +266,11 @@ void PitchCurveRenderer::draw(juce::Graphics &g, const Params &params)
               (i < static_cast<int>(audioData.deltaPitch.size()))
                   ? audioData.deltaPitch[static_cast<size_t>(i)]
                   : 0.0f;
-          finalMidi = baseMidi + deltaMidi + globalOffset;
+          finalMidi = baseMidi + deltaMidi + globalOffset + macroOffset(note, i, true);
         }
 
         if (finalMidi > 0.0f)
         {
-          const int sourceLength = std::max(1, endFrame - startFrame);
           const float position =
               (static_cast<float>(i - startFrame) + 0.5f) /
               static_cast<float>(sourceLength);
@@ -357,7 +411,18 @@ void PitchCurveRenderer::draw(juce::Graphics &g, const Params &params)
       {
         if (i >= 0 && i < static_cast<int>(basePitchCurve.size()))
         {
-          const float baseMidi = basePitchCurve[static_cast<size_t>(i)];
+          float baseMidi = basePitchCurve[static_cast<size_t>(i)];
+          if (!macroNotes.empty())
+          {
+            auto it = std::upper_bound(macroNotes.begin(), macroNotes.end(), i,
+                [](int frame, const Note* note) { return frame < note->getStartFrame(); });
+            if (it != macroNotes.begin())
+            {
+              const auto* note = *std::prev(it);
+              if (i < note->getEndFrame())
+                baseMidi += macroOffset(*note, i, false);
+            }
+          }
           if (baseMidi > 0.0f)
           {
             const float x = framesToSeconds(i) * pixelsPerSecond;

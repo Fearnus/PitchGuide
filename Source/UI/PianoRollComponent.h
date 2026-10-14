@@ -476,6 +476,8 @@ private:
 public:
   void invalidateWaveformCache();
   void invalidateBasePitchCache();
+  void beginMacroCurvePreview(const std::vector<Note*>& notes);
+  void endMacroCurvePreview();
 
 private:
   // Mouse drag throttling

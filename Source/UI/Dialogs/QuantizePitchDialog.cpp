@@ -14,8 +14,9 @@ class Content final : public juce::Component
 public:
   Content(float initialPitchCenter, float initialPitchDrift, bool initialSnapToScale,
           std::function<void(float, bool, float, bool)> preview,
-          std::function<void(bool)> completed)
-      : onPreview(std::move(preview)), onComplete(std::move(completed))
+          std::function<void(bool)> completed, std::function<void()> refreshPreview)
+      : onPreview(std::move(preview)), onComplete(std::move(completed)),
+        onRefreshPreview(std::move(refreshPreview))
   {
     pitchCenterLabel.setText(TR("quantize.pitch_center"), juce::dontSendNotification);
     pitchCenterLabel.setFont(AppFont::getFont(15.0f));
@@ -24,6 +25,8 @@ public:
     pitchCenter.setRange(0.0, 100.0, 1.0);
     pitchCenter.setTextValueSuffix(" %");
     pitchCenter.setValue(initialPitchCenter, juce::dontSendNotification);
+    pitchCenter.onDragStart = [this] { sliderDragging = true; };
+    pitchCenter.onDragEnd = [this] { sliderDragging = false; refreshCorrection(); };
     pitchCenter.onValueChange = [this] { previewCorrection(); };
 
     pitchDriftLabel.setText(TR("quantize.pitch_drift"), juce::dontSendNotification);
@@ -32,6 +35,8 @@ public:
     pitchDrift.setRange(0.0, 100.0, 1.0);
     pitchDrift.setTextValueSuffix(" %");
     pitchDrift.setValue(initialPitchDrift, juce::dontSendNotification);
+    pitchDrift.onDragStart = [this] { sliderDragging = true; };
+    pitchDrift.onDragEnd = [this] { sliderDragging = false; refreshCorrection(); };
     pitchDrift.onValueChange = [this] { driftEdited = true; previewCorrection(); };
 
     snapToScale.setToggleState(initialSnapToScale, juce::dontSendNotification);
@@ -121,13 +126,30 @@ private:
 
   void previewCorrection()
   {
+    if (finished)
+      return;
     if (onPreview)
       onPreview(static_cast<float>(pitchCenter.getValue()), snapToScale.getToggleState(),
                 static_cast<float>(pitchDrift.getValue()), driftEdited);
+    previewPending = true;
+    if (!sliderDragging)
+      refreshCorrection();
+  }
+
+  void refreshCorrection()
+  {
+    if (!previewPending || finished)
+      return;
+    previewPending = false;
+    if (onRefreshPreview)
+      onRefreshPreview();
   }
 
   std::function<void(float, bool, float, bool)> onPreview;
   std::function<void(bool)> onComplete;
+  std::function<void()> onRefreshPreview;
+  bool sliderDragging = false;
+  bool previewPending = false;
   juce::Label pitchCenterLabel;
   MacroSlider pitchCenter;
   juce::Label pitchDriftLabel;
@@ -150,7 +172,8 @@ void dismissPopup()
 void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
                float initialPitchCenter, float initialPitchDrift, bool initialSnapToScale,
                std::function<void(float, bool, float, bool)> onPreview,
-               std::function<void(bool)> onComplete)
+               std::function<void(bool)> onComplete,
+               std::function<void()> onRefreshPreview)
 {
   if (parent == nullptr)
     return;
@@ -160,7 +183,8 @@ void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
   constexpr int width = 340;
   constexpr int height = 124;
   auto *content = new Content(initialPitchCenter, initialPitchDrift, initialSnapToScale,
-                              std::move(onPreview), std::move(onComplete));
+                              std::move(onPreview), std::move(onComplete),
+                              std::move(onRefreshPreview));
   content->setSize(width, height);
   const auto bounds = parent->getLocalBounds();
   const int x = juce::jlimit(8, juce::jmax(8, bounds.getWidth() - width - 8),

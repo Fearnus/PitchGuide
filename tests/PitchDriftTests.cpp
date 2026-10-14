@@ -36,5 +36,16 @@ int main() {
     assert(composed == flat);
     const auto zeroVibrato = applyAllTransformations(curve, 0, 0, 0, 0, 0, {}, 0);
     for (float x : zeroVibrato) assert(x == 0);
+    // Live macro previews cache a drift response. Verify that combining it
+    // remains accurate with tilt, vibrato, and both boundary fades enabled.
+    AdjacentNoteContext context{true, true, -0.2f, 0.6f};
+    const auto zero = applyAllTransformations(curve, 0.3f, -0.4f, 0.8f, 20, 25, context, 0);
+    const auto one = applyAllTransformations(curve, 0.3f, -0.4f, 0.8f, 20, 25, context, 1);
+    for (float drift : {0.0f, 0.25f, 0.7f, 1.0f}) {
+        const auto exact = applyAllTransformations(curve, 0.3f, -0.4f, 0.8f, 20, 25, context, drift);
+        for (size_t i = 0; i < curve.size(); ++i)
+            if (std::abs(exact[i] - (zero[i] + drift * (one[i] - zero[i]))) > 1e-5f)
+                return 1;
+    }
     std::cout << "Pitch drift tests passed\n";
 }

@@ -658,6 +658,16 @@ void PianoRollComponent::invalidateWaveformCache()
   waveformBackgroundRenderer->invalidateCache();
 }
 
+void PianoRollComponent::beginMacroCurvePreview(const std::vector<Note*>& notes)
+{
+  pitchCurveRenderer->beginMacroPreview(notes);
+}
+
+void PianoRollComponent::endMacroCurvePreview()
+{
+  pitchCurveRenderer->endMacroPreview();
+}
+
 void PianoRollComponent::invalidateBasePitchCache()
 {
   pitchCurveRenderer->invalidateBasePitchCache();

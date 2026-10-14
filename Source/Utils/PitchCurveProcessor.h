@@ -19,6 +19,9 @@ namespace PitchCurveProcessor
      */
     void rebuildBaseFromNotes(Project& project);
 
+    // Cache the linear drift response once for interactive display previews.
+    std::vector<float> getDriftPreviewResponse(const Project& project, const Note& note);
+
     /**
      * Rebuild delta pitch and f0 only for specific notes (partial rebuild).
      * Skips basePitch regeneration (assumes positions unchanged).

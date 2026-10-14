@@ -332,14 +332,27 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
 
   const float originalPitchCenter = project->getPitchCenter();
   auto previewPitchCenter = std::make_shared<float>(originalPitchCenter);
+  const auto refreshPreviewCurves = [this, project]
+  {
+    pianoRoll.endMacroCurvePreview();
+    PitchCurveProcessor::rebuildBaseFromNotes(*project);
+    pianoRoll.invalidateBasePitchCache();
+    pianoRoll.repaint();
+    refreshOverview();
+  };
 
   const auto popupAnchor = juce::Rectangle<int>(pianoCard.getRight(), pianoCard.getY(), 0, 0);
   QuantizePitchDialog::showPopup(this, popupAnchor, originalPitchCenter,
       centers->empty() ? 0.0f : juce::jlimit(0.0f, 100.0f, (1.0f - centers->front().pitchDrift) * 100.0f),
       pitchCenterSnapToScale,
-      [this, project, centers, originalPitchCenter, previewPitchCenter](float amount,
+      [this, project, centers, previewPitchCenter](float amount,
                                                                           bool snapToScale, float drift, bool driftEdited)
       {
+        std::vector<Note*> previewNotes;
+        previewNotes.reserve(centers->size());
+        for (const auto& center : *centers)
+          previewNotes.push_back(center.note);
+        pianoRoll.beginMacroCurvePreview(previewNotes);
         pitchCenterSnapToScale = snapToScale;
         *previewPitchCenter = amount;
         const auto selectedScaleMode = project->getScaleMode();
@@ -383,13 +396,14 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
           else
             center.note->setMidiNoteFromPitchCorrection(sourceMidi);
         }
-        PitchCurveProcessor::rebuildBaseFromNotes(*project);
-        pianoRoll.invalidateBasePitchCache();
+        // Note rectangles read MIDI positions directly. Keep the expensive
+        // contour rebuild and cache invalidation out of the drag callback.
         pianoRoll.repaint();
-        refreshOverview();
       },
-      [this, project, centers, originalPitchCenter, previewPitchCenter](bool accepted)
+      [this, project, centers, originalPitchCenter, previewPitchCenter,
+       refreshPreviewCurves](bool accepted)
       {
+        pianoRoll.endMacroCurvePreview();
         bool changed = false;
         int dirtyStart = std::numeric_limits<int>::max();
         int dirtyEnd = std::numeric_limits<int>::min();
@@ -422,8 +436,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
         }
         if (!accepted)
         {
-          PitchCurveProcessor::rebuildBaseFromNotes(*project);
-          pianoRoll.invalidateBasePitchCache();
+          refreshPreviewCurves();
         }
         const bool pitchCenterChanged = accepted &&
             std::abs(*previewPitchCenter - originalPitchCenter) > 0.0001f;
@@ -473,7 +486,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
           pianoRoll.onPitchEdited();
         if (changed && pianoRoll.onPitchEditFinished)
           pianoRoll.onPitchEditFinished();
-      });
+      }, refreshPreviewCurves);
 }
 
 void PianoRollWorkspaceView::setRegionPreviews(

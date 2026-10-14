@@ -258,6 +258,23 @@ namespace PitchCurveProcessor
         composeF0InPlace(project, /*applyUvMask=*/false);
     }
 
+    std::vector<float> getDriftPreviewResponse(const Project& project, const Note& note)
+    {
+        const int frames = note.getEndFrame() - note.getStartFrame();
+        if (frames <= 0 || sourceDeltaFor(note).empty()) return {};
+        auto source = CurveResampler::resampleLinear(sourceDeltaFor(note), frames);
+        const auto context = buildAdjacentContext(project.getNotes(), note);
+        auto zero = PitchToolOperations::applyAllTransformations(source,
+            note.getTiltLeft(), note.getTiltRight(), note.getVibrato(),
+            note.getSmoothLeftFrames(), note.getSmoothRightFrames(), context, 0.0f);
+        auto one = PitchToolOperations::applyAllTransformations(source,
+            note.getTiltLeft(), note.getTiltRight(), note.getVibrato(),
+            note.getSmoothLeftFrames(), note.getSmoothRightFrames(), context, 1.0f);
+        for (size_t i = 0; i < one.size(); ++i)
+            one[i] = (one[i] - zero[i]) * note.getDeltaScale();
+        return one;
+    }
+
     void rebuildBaseFromNotes(Project& project)
     {
         auto& audioData = project.getAudioData();

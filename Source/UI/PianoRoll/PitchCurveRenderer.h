@@ -5,6 +5,7 @@
 #include "CoordinateMapper.h"
 
 #include <vector>
+#include <unordered_map>
 
 class SelectHandler;
 class PitchEditor;
@@ -47,6 +48,9 @@ public:
 
   void draw(juce::Graphics &g, const Params &params);
 
+  void beginMacroPreview(const std::vector<Note*>& notes);
+  void endMacroPreview() { macroPreview.clear(); macroNotes.clear(); }
+
   // Public to allow external invalidation (State handlers, undo operations).
   void invalidateBasePitchCache();
 
@@ -58,6 +62,18 @@ private:
   SelectHandler *selectHandler = nullptr;
   PitchEditor *pitchEditor = nullptr;
 
+  struct MacroPreview
+  {
+    float midi;
+    float drift;
+    std::vector<float> driftResponse;
+    float displayMidi;
+    float displayDrift;
+  };
+  std::unordered_map<const Note*, MacroPreview> macroPreview;
+  std::vector<const Note*> macroNotes;
+  double lastMacroPreviewUpdate = 0.0;
+  float macroOffset(const Note& note, int frame, bool includeDrift) const;
   std::vector<float> cachedBasePitch;
   size_t cachedNoteCount = 0;
   int cachedTotalFrames = 0;
