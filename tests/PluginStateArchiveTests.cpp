@@ -209,6 +209,46 @@ void hostBackedArchiveStaysSourceless() {
 } // namespace
 
 int main() {
+  {
+    auto shared = std::make_shared<MacroParameters>();
+    Project verse, chorus;
+    verse.setMacroParameters(shared);
+    chorus.setMacroParameters(shared);
+    verse.setProjectKey(0, ScaleMode::Major);
+    verse.setDetectedKey(9, ScaleMode::Minor);
+    CHECK(verse.getUseProjectKey());
+    CHECK(verse.getScaleRootNote() == 0);
+    chorus.setScaleRootNote(2);
+    chorus.setPreferredScaleMode(ScaleMode::Major);
+    CHECK(!chorus.getUseProjectKey());
+    chorus.setDetectedKey(4, ScaleMode::Minor);
+    CHECK(chorus.getScaleRootNote() == 2);
+    verse.setProjectKey(7, ScaleMode::Minor);
+    CHECK(verse.getScaleRootNote() == 7);
+    CHECK(verse.getPreferredScaleMode() == ScaleMode::Minor);
+    CHECK(chorus.getScaleRootNote() == 2);
+    CHECK(chorus.getPreferredScaleMode() == ScaleMode::Major);
+    Project restoredOverride;
+    CHECK(ProjectSerializer::fromJson(restoredOverride, ProjectSerializer::toJson(chorus)));
+    CHECK(!restoredOverride.getUseProjectKey());
+    CHECK(restoredOverride.getScaleRootNote() == 2);
+    CHECK(restoredOverride.getProjectKeyRoot() == 7);
+    chorus.setUseProjectKey(true);
+    CHECK(chorus.getScaleRootNote() == 7);
+    Project restoredInherited;
+    CHECK(ProjectSerializer::fromJson(restoredInherited, ProjectSerializer::toJson(chorus)));
+    CHECK(restoredInherited.getUseProjectKey());
+    CHECK(restoredInherited.getScaleRootNote() == 7);
+    restoredInherited.setUseProjectKey(false);
+    CHECK(restoredInherited.getScaleRootNote() == 7);
+    CHECK(restoredInherited.getPreferredScaleMode() == ScaleMode::Minor);
+    auto legacy = ProjectSerializer::toJson(chorus);
+    legacy.getDynamicObject()->removeProperty("useProjectKey");
+    CHECK(ProjectSerializer::fromJson(restoredOverride, legacy));
+    CHECK(restoredOverride.getUseProjectKey());
+    CHECK(restoredOverride.getScaleRootNote() == chorus.getProjectKeyRoot());
+  }
+
   roundTripRebuildsMel(0.0);
   roundTripRebuildsMel(0.25);
   streamWriterMatchesMemoryBlockWriter();

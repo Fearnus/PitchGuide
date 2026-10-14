@@ -612,6 +612,7 @@ void ToolbarComponent::setTrackViewAvailable(bool available)
 
 void ToolbarComponent::setTrackViewMode(bool track)
 {
+    scaleSelectionButton.setProjectKeyScope(track);
     trackViewButton.setToggleState(track, juce::dontSendNotification);
     refreshTrackViewTooltip();
 }

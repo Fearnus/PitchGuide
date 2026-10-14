@@ -2764,6 +2764,15 @@ bool PianoRollComponent::extendTimelineTo(double endSeconds)
   return true;
 }
 
+void PianoRollComponent::refreshScaleFromProject()
+{
+  selectedScaleRootNote = project ? project->getScaleRootNote() : 0;
+  selectedScaleMode = project ? project->getScaleMode() : ScaleMode::Chromatic;
+  previewScaleRootNote.reset();
+  previewScaleMode.reset();
+  repaint();
+}
+
 void PianoRollComponent::setScaleMode(ScaleMode mode)
 {
   if (selectedScaleMode == mode && !previewScaleMode.has_value())

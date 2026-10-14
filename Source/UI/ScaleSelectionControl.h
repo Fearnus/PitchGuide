@@ -14,6 +14,7 @@ public:
 
     void setProject(Project* projectToUse);
     void showPopup();
+    void setProjectKeyScope(bool value) { projectKeyScope = value; refreshLabel(); }
     Project* getProject() const { return project; }
     void setScaleRoot(int rootNote);
     void setScaleMode(ScaleMode mode);
@@ -35,6 +36,7 @@ private:
     void refreshLabel();
 
     Project* project = nullptr;
+    bool projectKeyScope = false;
 
     LocalisationWatcher languageWatcher{[this] { refreshLocalisedText(); }};
 

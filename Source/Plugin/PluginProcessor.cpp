@@ -1127,6 +1127,8 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
         if (!analyzedProject)
           return;
 
+        attachMacroParameters(*analyzedProject);
+
         std::unique_ptr<Project> completedProject;
         const bool hasPreviousCapture =
             previousCapturedProject &&
@@ -3305,6 +3307,11 @@ void PitchNetAudioProcessor::restoreAraRegionProject(const juce::String &regionK
 }
 
 void PitchNetAudioProcessor::attachMacroParameters(Project &project) {
+  if (!macroParameters->projectKeyInitialized && project.getMacroParameters()->projectKeyInitialized) {
+    macroParameters->projectKeyRoot = project.getProjectKeyRoot();
+    macroParameters->projectKeyMode = project.getProjectKeyMode();
+    macroParameters->projectKeyInitialized = true;
+  }
   project.setMacroParameters(macroParameters);
 }
 

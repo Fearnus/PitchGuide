@@ -197,6 +197,7 @@
   "scale.harmonic_minor": "Menor armónica",
   "scale.locrian": "Locrio",
   "scale.lydian": "Lidio",
+  "scale.use_project_key": "Usar tonalidad del proyecto",
   "scale.major": "Mayor",
   "scale.major_pentatonic": "Pentatónica mayor",
   "scale.melodic_minor": "Menor melódica",

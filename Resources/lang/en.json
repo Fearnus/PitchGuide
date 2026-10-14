@@ -199,6 +199,7 @@
   "scale.harmonic_minor": "Harmonic Minor",
   "scale.locrian": "Locrian",
   "scale.lydian": "Lydian",
+  "scale.use_project_key": "Use Project Key",
   "scale.major": "Major",
   "scale.major_pentatonic": "Major Pentatonic",
   "scale.melodic_minor": "Melodic Minor",

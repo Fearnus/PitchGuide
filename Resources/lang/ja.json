@@ -197,6 +197,7 @@
   "scale.harmonic_minor": "ハーモニックマイナー",
   "scale.locrian": "ロクリアン",
   "scale.lydian": "リディアン",
+  "scale.use_project_key": "プロジェクトのキーを使用",
   "scale.major": "メジャー",
   "scale.major_pentatonic": "メジャーペンタトニック",
   "scale.melodic_minor": "メロディックマイナー",

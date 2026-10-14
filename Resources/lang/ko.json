@@ -197,6 +197,7 @@
   "scale.harmonic_minor": "화성 단음계",
   "scale.locrian": "로크리안",
   "scale.lydian": "리디안",
+  "scale.use_project_key": "프로젝트 조성 사용",
   "scale.major": "장조",
   "scale.major_pentatonic": "장5음음계",
   "scale.melodic_minor": "가락 단음계",

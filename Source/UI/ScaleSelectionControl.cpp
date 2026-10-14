@@ -79,7 +79,7 @@ void ScaleSelectionControl::showPopup()
     modeMenu.setLookAndFeel(lookAndFeel);
     menu.setLookAndFeel(lookAndFeel);
 
-    const int selectedRoot = project->getScaleRootNote();
+    const int selectedRoot = projectKeyScope ? project->getProjectKeyRoot() : project->getScaleRootNote();
     for (int i = 0; i < static_cast<int>(kRootLabels.size()); ++i)
     {
         const juce::String label = kRootLabels[static_cast<size_t>(i)];
@@ -96,7 +96,7 @@ void ScaleSelectionControl::showPopup()
             nullptr, label);
     }
 
-    ScaleMode selectedMode = project->getPreferredScaleMode();
+    ScaleMode selectedMode = projectKeyScope ? project->getProjectKeyMode() : project->getPreferredScaleMode();
     if (selectedMode == ScaleMode::None || selectedMode == ScaleMode::Chromatic)
         selectedMode = ScaleMode::Major;
     for (size_t i = 0; i < kModeOptions.size(); ++i)
@@ -116,6 +116,10 @@ void ScaleSelectionControl::showPopup()
             nullptr, label);
     }
 
+    if (!projectKeyScope) {
+        menu.addItem(7200, TR("scale.use_project_key"), true, project->getUseProjectKey());
+        menu.addSeparator();
+    }
     menu.addSubMenu(TR("scale.root"), rootMenu);
     menu.addSubMenu(TR("scale.mode"), modeMenu);
     menu.showMenuAsync(
@@ -132,6 +136,15 @@ void ScaleSelectionControl::showPopup()
 
             constexpr int rootMenuBaseId = 7000;
             constexpr int modeMenuBaseId = 7100;
+            if (result == 7200 && safeThis->project && !safeThis->projectKeyScope) {
+                safeThis->project->setUseProjectKey(true);
+                safeThis->refreshLabel();
+                if (safeThis->onScaleRootChanged)
+                    safeThis->onScaleRootChanged(safeThis->project->getScaleRootNote());
+                if (safeThis->onScaleModeChanged)
+                    safeThis->onScaleModeChanged(safeThis->project->getPreferredScaleMode());
+                return;
+            }
             const int rootIndex = result - rootMenuBaseId;
             if (rootIndex >= 1 &&
                 rootIndex <= static_cast<int>(kRootLabels.size()))
@@ -155,9 +168,9 @@ void ScaleSelectionControl::refreshLocalisedText()
 
 void ScaleSelectionControl::refreshLabel()
 {
-    const int root = project != nullptr ? project->getScaleRootNote() : 0;
+    const int root = project != nullptr ? (projectKeyScope ? project->getProjectKeyRoot() : project->getScaleRootNote()) : 0;
     ScaleMode mode =
-        project != nullptr ? project->getPreferredScaleMode() : ScaleMode::Major;
+        project != nullptr ? (projectKeyScope ? project->getProjectKeyMode() : project->getPreferredScaleMode()) : ScaleMode::Major;
     if (mode == ScaleMode::None || mode == ScaleMode::Chromatic)
         mode = ScaleMode::Major;
     const auto text = rootLabel(root) + " " + modeLabel(mode);
@@ -183,7 +196,12 @@ void ScaleSelectionControl::setScaleRoot(int rootNote)
     if (project == nullptr)
         return;
     const int normalized = juce::jlimit(0, 11, rootNote);
-    project->setScaleRootNote(normalized);
+    if (projectKeyScope)
+        project->setProjectKey(normalized, project->getProjectKeyMode());
+    else {
+        project->setUseProjectKey(false);
+        project->setScaleRootNote(normalized);
+    }
     refreshLabel();
     if (onScaleRootChanged)
         onScaleRootChanged(normalized);
@@ -196,10 +214,12 @@ void ScaleSelectionControl::setScaleMode(ScaleMode mode)
     if (mode == ScaleMode::None || mode == ScaleMode::Chromatic)
         mode = ScaleMode::Major;
 
-    project->setPreferredScaleMode(mode);
-    if (project->getScaleMode() != ScaleMode::Chromatic &&
-        project->getScaleMode() != ScaleMode::None)
-        project->setScaleMode(mode);
+    if (projectKeyScope)
+        project->setProjectKey(project->getProjectKeyRoot(), mode);
+    else {
+        project->setUseProjectKey(false);
+        project->setPreferredScaleMode(mode);
+    }
     if (onScaleModeChanged)
         onScaleModeChanged(mode);
     refreshLabel();

@@ -152,12 +152,12 @@ inline void detectAndApplyScale(Project& project)
     if (!detectMajorOrRelativeMinor(project, rootNote, mode))
         return;
 
-    project.setScaleRootNote(rootNote);
-    project.setPreferredScaleMode(mode);
+    project.setDetectedKey(rootNote, mode);
 
-    const auto activeMode = project.getScaleMode();
-    if (activeMode != ScaleMode::Chromatic && activeMode != ScaleMode::None)
-        project.setScaleMode(mode);
+    // Detection is a suggestion, not an explicit region override. Seed the
+    // default once for standalone projects; the plugin adopts its first result.
+    if (!project.getMacroParameters()->projectKeyInitialized)
+        project.setProjectKey(rootNote, mode);
 }
 
 inline float getReferenceOffsetSemitones(int referenceHz)

@@ -298,6 +298,26 @@ void Project::clearLoopRange()
     loopRange = {};
 }
 
+void Project::setUseProjectKey(bool inherit)
+{
+    if (useProjectKey == inherit) return;
+    if (!inherit) {
+        scaleRootNote = getScaleRootNote();
+        preferredScaleMode = getPreferredScaleMode();
+    }
+    useProjectKey = inherit;
+    modified = true;
+}
+
+void Project::setProjectKey(int root, ScaleMode mode)
+{
+    macroParameters->projectKeyRoot = juce::jlimit(0, 11, root);
+    if (mode >= ScaleMode::Major && mode <= ScaleMode::WholeTone)
+        macroParameters->projectKeyMode = mode;
+    macroParameters->projectKeyInitialized = true;
+    modified = true;
+}
+
 void Project::setScaleMode(ScaleMode mode)
 {
     bool changed = false;
@@ -320,6 +340,7 @@ void Project::setScaleMode(ScaleMode mode)
 
 void Project::setPreferredScaleMode(ScaleMode mode)
 {
+    setUseProjectKey(false);
     if (mode == ScaleMode::None || mode == ScaleMode::Chromatic ||
         preferredScaleMode == mode)
         return;
@@ -330,6 +351,7 @@ void Project::setPreferredScaleMode(ScaleMode mode)
 
 void Project::setScaleRootNote(int noteInOctave)
 {
+    setUseProjectKey(false);
     const int normalized = juce::jlimit(-1, 11, noteInOctave);
     if (scaleRootNote == normalized)
         return;

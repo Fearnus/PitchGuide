@@ -124,6 +124,7 @@ public:
   // Scale-grid visualization
   void setScaleMode(ScaleMode mode);
   void setScaleRootNote(int noteInOctave);
+  void refreshScaleFromProject();
   void setScaleRootPreview(std::optional<int> noteInOctave);
   void setScaleModePreview(std::optional<ScaleMode> mode);
   void setSnapToSemitoneDrag(bool enabled);

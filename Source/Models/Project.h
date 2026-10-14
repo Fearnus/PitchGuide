@@ -134,6 +134,9 @@ enum class TimelineGridDivision : int
 struct MacroParameters
 {
     ScaleMode scaleMode = ScaleMode::Chromatic;
+    int projectKeyRoot = 0;
+    ScaleMode projectKeyMode = ScaleMode::Major;
+    bool projectKeyInitialized = false;
     int pitchReferenceHz = 440;
     bool snapToSemitones = false;
     DragSnapMode dragSnapMode = DragSnapMode::Chromatic;
@@ -244,12 +247,30 @@ public:
     void clearLoopRange();
 
     // Piano-roll scale visualization
-    ScaleMode getScaleMode() const { return macroParameters->scaleMode; }
+    ScaleMode getScaleMode() const {
+        const auto mode = macroParameters->scaleMode;
+        return mode == ScaleMode::None || mode == ScaleMode::Chromatic ? mode : getPreferredScaleMode();
+    }
     void setScaleMode(ScaleMode mode);
-    ScaleMode getPreferredScaleMode() const { return preferredScaleMode; }
+    ScaleMode getPreferredScaleMode() const { return useProjectKey ? getProjectKeyMode() : preferredScaleMode; }
     void setPreferredScaleMode(ScaleMode mode);
-    int getScaleRootNote() const { return scaleRootNote; }
+    int getScaleRootNote() const { return useProjectKey ? getProjectKeyRoot() : scaleRootNote; }
     void setScaleRootNote(int noteInOctave);
+    void setDetectedKey(int root, ScaleMode mode) {
+        detectedKeyRoot = juce::jlimit(0, 11, root);
+        detectedKeyMode = mode;
+        modified = true;
+    }
+    int getDetectedScaleRootNote() const { return detectedKeyRoot; }
+    ScaleMode getDetectedScaleMode() const { return detectedKeyMode; }
+    int getRegionKeyRoot() const { return scaleRootNote; }
+    ScaleMode getRegionKeyMode() const { return preferredScaleMode; }
+    bool getUseProjectKey() const { return useProjectKey; }
+    void setUseProjectKey(bool inherit);
+    int getProjectKeyRoot() const { return macroParameters->projectKeyRoot; }
+    ScaleMode getProjectKeyMode() const { return macroParameters->projectKeyMode; }
+    void setProjectKey(int root, ScaleMode mode);
+
     int getPitchReferenceHz() const { return macroParameters->pitchReferenceHz; }
     void setPitchReferenceHz(int hz);
     bool getSnapToSemitones() const { return macroParameters->snapToSemitones; }
@@ -297,6 +318,9 @@ private:
     bool modified = false;
 
     LoopRange loopRange;
+    bool useProjectKey = true;
+    int detectedKeyRoot = 0;
+    ScaleMode detectedKeyMode = ScaleMode::Major;
     ScaleMode preferredScaleMode = ScaleMode::Major;
     int scaleRootNote = 0; // 0 = C, 1 = C#, ..., 11 = B
     std::shared_ptr<MacroParameters> macroParameters;

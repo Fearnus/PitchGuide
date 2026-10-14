@@ -185,8 +185,14 @@ juce::var ProjectSerializer::toJson(const Project& project,
     obj->setProperty("pitchCenter", project.getPitchCenter());
     obj->setProperty("scaleMode", static_cast<int>(project.getScaleMode()));
     obj->setProperty("preferredScaleMode",
-                     static_cast<int>(project.getPreferredScaleMode()));
-    obj->setProperty("scaleRootNote", project.getScaleRootNote());
+                     static_cast<int>(project.getRegionKeyMode()));
+    obj->setProperty("scaleRootNote", project.getRegionKeyRoot());
+    obj->setProperty("detectedKeyRoot", project.getDetectedScaleRootNote());
+    obj->setProperty("detectedKeyMode", static_cast<int>(project.getDetectedScaleMode()));
+    obj->setProperty("useProjectKey", project.getUseProjectKey());
+    obj->setProperty("projectKeyRoot", project.getProjectKeyRoot());
+    obj->setProperty("projectKeyMode", static_cast<int>(project.getProjectKeyMode()));
+    obj->setProperty("projectKeyInitialized", project.getMacroParameters()->projectKeyInitialized);
     obj->setProperty("pitchReferenceHz", project.getPitchReferenceHz());
     obj->setProperty("snapToSemitones", project.getSnapToSemitones());
     obj->setProperty("dragSnapMode",
@@ -294,6 +300,8 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         }
     }
 
+    // Load the stored region key before resolving inheritance.
+    project.setUseProjectKey(false);
     // Global parameters
     project.setGlobalPitchOffset(static_cast<float>(json.getProperty("globalPitchOffset", 0.0)));
     project.setFormantShift(static_cast<float>(json.getProperty("formantShift", 0.0)));
@@ -320,6 +328,14 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
                 static_cast<ScaleMode>(preferredModeValue));
     }
     project.setScaleRootNote(static_cast<int>(json.getProperty("scaleRootNote", 0)));
+    project.setProjectKey(static_cast<int>(json.getProperty("projectKeyRoot", project.getRegionKeyRoot())),
+        static_cast<ScaleMode>(static_cast<int>(json.getProperty("projectKeyMode", static_cast<int>(project.getRegionKeyMode())))));
+    project.getMacroParameters()->projectKeyInitialized = static_cast<bool>(json.getProperty("projectKeyInitialized", true));
+    const int detectedMode = static_cast<int>(json.getProperty("detectedKeyMode", static_cast<int>(project.getRegionKeyMode())));
+    project.setDetectedKey(static_cast<int>(json.getProperty("detectedKeyRoot", project.getRegionKeyRoot())),
+        detectedMode >= static_cast<int>(ScaleMode::Major) && detectedMode <= static_cast<int>(ScaleMode::WholeTone)
+            ? static_cast<ScaleMode>(detectedMode) : ScaleMode::Major);
+    project.setUseProjectKey(static_cast<bool>(json.getProperty("useProjectKey", true)));
     project.setPitchReferenceHz(static_cast<int>(json.getProperty("pitchReferenceHz", 440)));
     project.setSnapToSemitones(static_cast<bool>(
         json.getProperty("snapToSemitones", false)));

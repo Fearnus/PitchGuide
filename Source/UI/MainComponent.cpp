@@ -659,6 +659,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   toolbar.onTrackViewModeChanged = [this](bool track)
   {
     pianoRollView.setTrackViewMode(track);
+    toolbar.setTrackViewMode(track);
     settingsManager->setTrackViewMode(track);
     settingsManager->saveConfig();
     if (onTrackViewModeChanged)
@@ -815,9 +816,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
   { setEditMode(mode); };
   toolbar.onEditModeChanged = [this](EditMode mode)
   { setEditMode(mode); };
-  toolbar.onScaleRootChanged = [this](int rootNote)
+  toolbar.onScaleRootChanged = [this](int)
   {
-    pianoRoll.setScaleRootNote(rootNote);
+    pianoRoll.refreshScaleFromProject();
     parameterPanel.updateGlobalSliders();
     notifyProjectDataChanged();
   };
@@ -825,15 +826,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
   {
     pianoRoll.setScaleRootPreview(rootNote);
   };
-  toolbar.onScaleModeChanged = [this](ScaleMode mode)
+  toolbar.onScaleModeChanged = [this](ScaleMode)
   {
-    if (auto* project = getProject();
-        project != nullptr &&
-        project->getScaleMode() != ScaleMode::Chromatic &&
-        project->getScaleMode() != ScaleMode::None)
-      pianoRoll.setScaleMode(mode);
-    else
-      pianoRoll.repaint();
+    pianoRoll.refreshScaleFromProject();
     parameterPanel.updateGlobalSliders();
     notifyProjectDataChanged();
   };

@@ -197,6 +197,7 @@
   "scale.harmonic_minor": "和聲小調",
   "scale.locrian": "洛克里安",
   "scale.lydian": "利底安",
+  "scale.use_project_key": "使用專案調性",
   "scale.major": "大調",
   "scale.major_pentatonic": "大調五聲",
   "scale.melodic_minor": "旋律小調",
