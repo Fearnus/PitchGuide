@@ -10,7 +10,7 @@ namespace QuantizePitchDialog {
 // The edited flag preserves mixed note drift values until the slider is changed.
 // The completion callback receives true only when the user explicitly
 // confirms the edit. onPreview updates note positions during dragging;
-// onRefreshPreview rebuilds visual curves after release (or a non-drag edit).
+// onRefreshPreview rebuilds curves and requests audio after release (or a non-drag edit).
 void showPopup(juce::Component *parent,
                juce::Rectangle<int> anchorBounds,
                float initialPitchCenter, float initialPitchDrift,

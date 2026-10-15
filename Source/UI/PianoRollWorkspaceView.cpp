@@ -321,6 +321,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
     Note* note;
     float midiNote, sourceMidiNote, pitchDrift;
     float finalMidi = 0.0f, finalDrift = 1.0f;
+    float renderedMidi = midiNote, renderedDrift = pitchDrift;
   };
   struct State {
     TrackPitchMacroTarget target;
@@ -349,6 +350,33 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
     safeThis->pianoRoll.invalidateBasePitchCache();
     safeThis->pianoRoll.repaint();
     safeThis->refreshOverview();
+  };
+  // Track the last requested sound, rather than comparing with popup-open
+  // values: a later drag can return to the original and still need a render.
+  const auto renderPreview = [safeThis, states] {
+    if (!safeThis) return;
+    for (auto& state : *states) {
+      if (state.target.isValid && !state.target.isValid()) continue;
+      int first = std::numeric_limits<int>::max(), last = -1;
+      for (auto& center : state.notes) {
+        const float midi = center.note->getMidiNote(), drift = center.note->getPitchDrift();
+        if (std::abs(midi - center.renderedMidi) <= 0.0001f &&
+            std::abs(drift - center.renderedDrift) <= 0.0001f) continue;
+        center.renderedMidi = midi;
+        center.renderedDrift = drift;
+        center.note->markDirty();
+        center.note->markSynthDirty();
+        first = std::min(first, center.note->getStartFrame());
+        last = std::max(last, center.note->getEndFrame());
+      }
+      if (last < first) continue;
+      state.target.project->markNoteEditDirtyRange(first, last);
+      if (state.target.project == safeThis->pianoRoll.getProject()) {
+        if (safeThis->pianoRoll.onPitchEdited) safeThis->pianoRoll.onPitchEdited();
+        if (safeThis->pianoRoll.onPitchPreviewRenderRequested)
+          safeThis->pianoRoll.onPitchPreviewRenderRequested();
+      } else if (state.target.onChanged) state.target.onChanged(true);
+    }
   };
   const auto apply = [safeThis, states, amount](bool redo) {
     if (!safeThis) return;
@@ -461,7 +489,7 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
         }
         pianoRoll.repaint();
       },
-      [safeThis, states, amount, previewEdited, refreshCurves, apply, track](bool accepted) {
+      [safeThis, states, amount, previewEdited, refreshCurves, renderPreview, apply, track](bool accepted) {
         if (!safeThis) return;
         if (accepted && !*previewEdited) return;
         safeThis->pianoRoll.endMacroCurvePreview();
@@ -480,12 +508,28 @@ void PianoRollWorkspaceView::showPitchCenterPopup()
             }
           }
         }
-        if (!accepted) { refreshCurves(); return; }
+        if (!accepted) {
+          refreshCurves();
+          renderPreview(); // Replace any auditioned audio with the original.
+          return;
+        }
         if (!changed) return;
-        apply(true);
+        // The release callback already requested the final audio. Commit only
+        // settings/history here, without re-dirtying notes or rendering again.
+        for (auto& state : *states) {
+          if (state.target.isValid && !state.target.isValid()) continue;
+          state.target.project->setPitchCenter(*amount);
+          state.target.project->setModified(true);
+          if (state.target.onCommit) state.target.onCommit();
+        }
+        if (safeThis->pianoRoll.onPitchEditCommitted)
+          safeThis->pianoRoll.onPitchEditCommitted();
         if (auto* undo = safeThis->pianoRoll.getUndoManager())
           undo->addAction(std::make_unique<MacroAction>(apply, track));
-      }, refreshCurves);
+      }, [refreshCurves, renderPreview] {
+        refreshCurves();
+        renderPreview();
+      });
 }
 
 void PianoRollWorkspaceView::setRegionPreviews(

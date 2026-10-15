@@ -109,6 +109,7 @@ private:
   {
     if (finished)
       return;
+    if (accepted) refreshCorrection();
     finished = true;
     if (onComplete)
       onComplete(accepted);

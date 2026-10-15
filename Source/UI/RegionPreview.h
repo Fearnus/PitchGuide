@@ -89,5 +89,6 @@ struct TrackPitchMacroTarget {
   Project* project = nullptr;
   std::vector<juce::Range<int>> frames;
   std::function<bool()> isValid;
-  std::function<void(bool)> onChanged; // false: visual preview; true: commit/render
+  std::function<void(bool)> onChanged; // false: visual preview; true: render
+  std::function<void()> onCommit; // persist settings without another render
 };

@@ -433,6 +433,18 @@ void PitchNetAudioProcessorEditor::setupARAMode() {
               return;
             }
         };
+        target.onCommit = [safeEditor, key] {
+          if (!safeEditor) return;
+          auto* editor = safeEditor.getComponent();
+          for (auto* live : editor->collectAraPlaybackRegions())
+            if (pitchnetRegionKey(*live) == key) {
+              juce::MemoryBlock archive;
+              if (editor->audioProcessor.serializeAraRegionProject(key, archive))
+                live->getAudioModification<PitchNetAudioModification>()->setProjectArchive(
+                    archive.getData(), archive.getSize());
+              return;
+            }
+        };
         targets.push_back(std::move(target));
         found = indices.find(key);
       }

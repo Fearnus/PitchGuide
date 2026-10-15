@@ -64,3 +64,8 @@ add_executable(TrackGestureTests TrackGestureTests.cpp)
 target_link_libraries(TrackGestureTests PRIVATE pitchnet_ui)
 target_compile_features(TrackGestureTests PRIVATE cxx_std_17)
 add_test(NAME TrackGestureTests COMMAND TrackGestureTests)
+
+add_executable(PitchMacroRenderTests PitchMacroRenderTests.cpp)
+target_link_libraries(PitchMacroRenderTests PRIVATE pitchnet_ui)
+target_compile_features(PitchMacroRenderTests PRIVATE cxx_std_17)
+add_test(NAME PitchMacroRenderTests COMMAND PitchMacroRenderTests)
