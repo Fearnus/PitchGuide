@@ -18,6 +18,9 @@ constexpr int kFrames = 120;
 
 Project makeProject(double timelineOffsetSeconds) {
   Project project;
+  project.uiWidth = 1234;
+  project.uiHeight = 789;
+  project.thumbnailVisible = true;
   auto &audio = project.getAudioData();
   audio.sampleRate = SAMPLE_RATE;
   audio.timelineOffsetSeconds = timelineOffsetSeconds;
@@ -111,6 +114,9 @@ void roundTripRebuildsMel(double timelineOffsetSeconds) {
                                               archive.getSize()));
 
   const auto &a = sourceAudio;
+  CHECK(restored.uiWidth == source.uiWidth);
+  CHECK(restored.uiHeight == source.uiHeight);
+  CHECK(restored.thumbnailVisible == source.thumbnailVisible);
   const auto &b = restored.getAudioData();
   CHECK(b.sampleRate == a.sampleRate);
   CHECK(b.waveform.getNumSamples() == a.waveform.getNumSamples());
@@ -247,6 +253,24 @@ int main() {
     CHECK(ProjectSerializer::fromJson(restoredOverride, legacy));
     CHECK(restoredOverride.getUseProjectKey());
     CHECK(restoredOverride.getScaleRootNote() == chorus.getProjectKeyRoot());
+  }
+
+  {
+    Project source;
+    source.uiWidth = 1440;
+    source.uiHeight = 900;
+    source.thumbnailVisible = true;
+    auto json = ProjectSerializer::toJson(source);
+    Project restored;
+    CHECK(ProjectSerializer::fromJson(restored, json));
+    CHECK(restored.uiWidth == 1440 && restored.uiHeight == 900);
+    CHECK(restored.thumbnailVisible);
+    json.getDynamicObject()->removeProperty("uiWidth");
+    json.getDynamicObject()->removeProperty("uiHeight");
+    json.getDynamicObject()->removeProperty("thumbnailVisible");
+    CHECK(ProjectSerializer::fromJson(restored, json));
+    CHECK(restored.uiWidth == 0 && restored.uiHeight == 0);
+    CHECK(!restored.thumbnailVisible);
   }
 
   roundTripRebuildsMel(0.0);

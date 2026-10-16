@@ -1742,6 +1742,9 @@ std::uint64_t PitchNetAudioProcessor::computePersistentStateKey(
       hashValue(value ? 1u : 0u);
   };
 
+  hashValue(project->uiWidth);
+  hashValue(project->uiHeight);
+  hashValue(project->thumbnailVisible ? 1u : 0u);
   hashValue(hostBackedARA ? 1u : 0u);
   hashBytes(parametersXml.toRawUTF8(), parametersXml.getNumBytesAsUTF8());
 

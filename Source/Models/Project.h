@@ -157,6 +157,11 @@ public:
     Project();
     ~Project() = default;
 
+    // Presentation state saved with the project; zero size uses app defaults.
+    int uiWidth = 0;
+    int uiHeight = 0;
+    bool thumbnailVisible = false;
+
     // File operations
     void setFilePath(const juce::File &file) { filePath = file; }
     juce::File getFilePath() const { return filePath; }

@@ -653,6 +653,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
   pianoRollView.setOverviewVisible(settingsManager->getOverviewVisible());
   pianoRollView.onOverviewVisibilityChanged = [this](bool visible)
   {
+    if (auto *project = getProject())
+      project->thumbnailVisible = visible;
     settingsManager->setOverviewVisible(visible);
     settingsManager->saveConfig();
   };
@@ -1457,6 +1459,11 @@ void MainComponent::applyUiBrightness(double brightnessPercent)
 
 void MainComponent::resized()
 {
+  if (auto *project = getProject(); project && getWidth() > 0 && getHeight() > 0)
+  {
+    project->uiWidth = getWidth();
+    project->uiHeight = getHeight();
+  }
   auto bounds = getLocalBounds();
 
 #if !JUCE_MAC
@@ -1625,6 +1632,9 @@ void MainComponent::saveProject(bool saveAs)
   auto *project = getProject();
   if (!project)
     return;
+
+  project->uiWidth = getWidth();
+  project->uiHeight = getHeight();
 
   auto ensureAudioSha = [project]()
   {
@@ -3573,6 +3583,7 @@ bool MainComponent::restoreProjectJson(const juce::String &jsonString)
 
       pianoRoll.setProject(project);
       pianoRollView.setProject(project);
+      restoreProjectPresentation();
       parameterPanel.setProject(project);
       toolbar.setTotalTime(project->getAudioData().getDuration());
       toolbar.setTransportEnabled(true);
@@ -3600,6 +3611,7 @@ bool MainComponent::restoreProjectSnapshot(const Project &snapshot)
       project->setMacroParameters(macroParameters);
     pianoRoll.setProject(project);
     pianoRollView.setProject(project);
+    restoreProjectPresentation();
     parameterPanel.setProject(project);
     toolbar.setTotalTime(project->getAudioData().getDuration());
     toolbar.setTransportEnabled(true);
@@ -4063,4 +4075,26 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo &info
   default:
     return false;
   }
+}
+
+void MainComponent::restoreProjectPresentation()
+{
+  auto *project = getProject();
+  if (project == nullptr)
+    return;
+  const int width = project->uiWidth;
+  const int height = project->uiHeight;
+  pianoRollView.setOverviewVisible(project->thumbnailVisible);
+  if (width <= 0 || height <= 0)
+    return;
+  auto size = juce::Point<int>(width, height);
+  if (auto *display = WindowSizing::getDisplayForComponent(this))
+    size = WindowSizing::getClampedSize(width, height, *display,
+                                       WindowSizing::Constraints());
+  if (auto *editor = findParentComponentOfClass<juce::AudioProcessorEditor>())
+    editor->setSize(size.x, size.y);
+  else if (auto *window = findParentComponentOfClass<juce::DocumentWindow>())
+    window->setContentComponentSize(size.x, size.y);
+  else
+    setSize(size.x, size.y);
 }

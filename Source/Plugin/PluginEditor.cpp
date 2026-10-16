@@ -235,6 +235,9 @@ PitchNetAudioProcessorEditor::PitchNetAudioProcessorEditor(
   setupCallbacks();
 
   auto size = audioProcessor.getLastEditorSize();
+  if (auto *project = mainView->getProject();
+      project && project->uiWidth > 0 && project->uiHeight > 0)
+    size = {project->uiWidth, project->uiHeight};
   if (size.x <= 0 || size.y <= 0)
     size = getDefaultMainViewSize(this);
   setSize(size.x, size.y);

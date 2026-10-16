@@ -300,6 +300,8 @@ void PianoRollWorkspaceView::setProject(Project *project)
 {
   dismissPitchCenterPopup();
   overviewPanel.setProject(project);
+  if (project != nullptr)
+    setOverviewVisible(project->thumbnailVisible);
 }
 
 void PianoRollWorkspaceView::dismissPitchCenterPopup()

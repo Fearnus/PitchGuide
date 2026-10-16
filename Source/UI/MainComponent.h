@@ -338,6 +338,7 @@ private:
   void segmentIntoNotes(Project &targetProject);
 
   void saveProject(bool saveAs = false);
+  void restoreProjectPresentation();
 
   void undo();
   void redo();

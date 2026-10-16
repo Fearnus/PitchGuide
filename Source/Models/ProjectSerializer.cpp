@@ -164,6 +164,10 @@ juce::var ProjectSerializer::toJson(const Project& project,
     obj->setProperty("audioPath", project.getFilePath().getFullPathName());
     obj->setProperty("audioSha256", project.getAudioSha256());
 
+    obj->setProperty("uiWidth", project.uiWidth);
+    obj->setProperty("uiHeight", project.uiHeight);
+    obj->setProperty("thumbnailVisible", project.thumbnailVisible);
+
     // Audio settings
     obj->setProperty("sampleRate", project.getAudioData().sampleRate);
     obj->setProperty("timelineOffsetSeconds",
@@ -283,6 +287,10 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     project.setName(json.getProperty("name", "Untitled").toString());
     project.setFilePath(juce::File(json.getProperty("audioPath", "").toString()));
     project.setAudioSha256(json.getProperty("audioSha256", "").toString());
+
+    project.uiWidth = juce::jlimit(0, 16384, static_cast<int>(json.getProperty("uiWidth", 0)));
+    project.uiHeight = juce::jlimit(0, 16384, static_cast<int>(json.getProperty("uiHeight", 0)));
+    project.thumbnailVisible = static_cast<bool>(json.getProperty("thumbnailVisible", false));
 
     // Audio settings
     auto& audioData = project.getAudioData();
