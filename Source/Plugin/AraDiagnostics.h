@@ -13,9 +13,9 @@
 // Model-graph events are low frequency by nature. Render-path reporting must
 // only fire when an outcome CHANGES, never per block.
 
-#if PITCHNET_ARA_DIAGNOSTICS
-
 #include "../Utils/AppLogger.h"
+
+#if PITCHNET_ARA_DIAGNOSTICS && PITCHNET_LOGGING_ENABLED
 
 #define ARA_DIAG(msg) AppLogger::log(juce::String("[ARA] ") + (msg))
 #define ARA_DIAG_PTR(p)                                                        \

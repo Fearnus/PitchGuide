@@ -876,6 +876,7 @@ endif()
 
 # Common definitions
 target_compile_definitions(pitchnet_core PUBLIC
+    PITCHNET_LOGGING_ENABLED=$<NOT:$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>>
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1

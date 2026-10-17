@@ -44,6 +44,7 @@ namespace
 
 Vocoder::Vocoder()
 {
+#if PITCHNET_LOGGING_ENABLED
   // Open log file in platform-appropriate logs directory
   auto logPath = PlatformPaths::getLogFile("vocoder_" +
                                            AppLogger::getSessionId() + ".txt");
@@ -58,6 +59,7 @@ Vocoder::Vocoder()
              << " ==========\n";
     logFile->flush();
   }
+#endif
 
 #ifdef HAVE_ONNXRUNTIME
   // Initialize ONNX Runtime environment
@@ -173,6 +175,7 @@ Vocoder::~Vocoder()
 
 void Vocoder::log(const std::string &message)
 {
+#if PITCHNET_LOGGING_ENABLED
 #if JUCE_DEBUG
   DBG("[Vocoder] " + juce::String(message));
 #endif
@@ -196,6 +199,9 @@ void Vocoder::log(const std::string &message)
              << std::setw(3) << ms.count() << " | " << message << "\n";
     logFile->flush();
   }
+#else
+  (void)message;
+#endif
 }
 
 bool Vocoder::isOnnxRuntimeAvailable()
