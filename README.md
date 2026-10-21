@@ -3,8 +3,6 @@
   <p>A JUCE vocal pitch editor that is being extended to correct a new take toward a reference vocal and to show live pitch while you sing.</p>
 </div>
 
-![PitchGuide editor screenshot](docs/images/pitchguide-editor.png)
-
 ## Origin, attribution, and license
 
 PitchGuide is developed by Fearnus. It is a modified derivative of
