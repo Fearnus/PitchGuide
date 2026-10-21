@@ -39,8 +39,11 @@ struct Options {
     int coarseHop = 8;
     /** Full-rate search radius around the coarse path (64 = ~0.74 s). */
     int bandRadius = 64;
-    /** Extra cost of a non-diagonal step, so tempo changes are not free. */
-    float stepPenalty = 0.1f;
+    /** Extra cost of a non-diagonal step, so tempo changes are not free.
+     * Higher values keep a take that is already in time from being pulled
+     * around by small spectral differences between voices; above ~0.5 the
+     * path starts cutting into the fade at the end of stretched notes. */
+    float stepPenalty = 0.5f;
 };
 
 struct Result {
