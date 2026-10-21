@@ -8,7 +8,7 @@ if(CMAKE_HOST_APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
         "macOS target architectures" FORCE)
 endif()
 
-project(PitchNet VERSION 0.7.2)
+project(PitchGuide VERSION 0.7.2)
 
 # Fail fast on a 32-bit toolchain. Every ONNX Runtime package selected below is
 # x64/arm64 only, so a 32-bit build cannot link - it dies much later with a wall
@@ -18,7 +18,7 @@ project(PitchNet VERSION 0.7.2)
 # then defaults to x86.
 if(CMAKE_SIZEOF_VOID_P AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR
-        "PitchNet requires a 64-bit toolchain, but this one targets "
+        "PitchGuide requires a 64-bit toolchain, but this one targets "
         "${CMAKE_SIZEOF_VOID_P}-byte pointers (32-bit).\n"
         "On Windows with the Ninja generator, configure from an x64 developer "
         "environment:\n"
@@ -69,7 +69,7 @@ if(APPLE)
     else()
         message(FATAL_ERROR
             "Unsupported macOS architecture list: ${CMAKE_OSX_ARCHITECTURES}. "
-            "PitchNet supports arm64 and x86_64.")
+            "PitchGuide supports arm64 and x86_64.")
     endif()
 
     message(STATUS
@@ -224,24 +224,29 @@ endif()
 option(PITCHNET_DEV_BUILD "Build with a separate development plugin identity" OFF)
 
 # Diagnostic logging for the ARA model graph and render path. Writes through the
-# existing AppLogger to %APPDATA%/PitchNet/Logs/debug_<session>.log. Model-graph
+# existing AppLogger to %APPDATA%/PitchGuide/Logs/debug_<session>.log. Model-graph
 # events are low frequency; the render report is one line per region, once. Off
 # by default - release builds contain none of it.
 option(PITCHNET_ARA_DIAGNOSTICS "Log ARA model-graph and render diagnostics" OFF)
 
 if(PITCHNET_DEV_BUILD)
-    set(PITCHNET_PRODUCT_NAME "PitchNet Dev")
-    set(PITCHNET_BUNDLE_ID "com.sessionloops.pitchnet.dev")
-    set(PITCHNET_PLUGIN_CODE PTD1)
+    set(PITCHNET_PRODUCT_NAME "PitchGuide Dev")
+    set(PITCHNET_BUNDLE_ID "com.fearnus.pitchguide.dev")
+    set(PITCHNET_PLUGIN_CODE Pgd0)
     message(STATUS
-        "PitchNet: side-by-side DEV build "
+        "PitchGuide: side-by-side DEV build "
         "(product '${PITCHNET_PRODUCT_NAME}', plugin code ${PITCHNET_PLUGIN_CODE}, "
         "bundle id ${PITCHNET_BUNDLE_ID})")
 else()
-    set(PITCHNET_PRODUCT_NAME "PitchNet")
-    set(PITCHNET_BUNDLE_ID "com.sessionloops.pitchnet")
-    set(PITCHNET_PLUGIN_CODE PTE1)
+    set(PITCHNET_PRODUCT_NAME "PitchGuide")
+    set(PITCHNET_BUNDLE_ID "com.fearnus.pitchguide")
+    set(PITCHNET_PLUGIN_CODE Pgd1)
 endif()
+
+# PitchGuide derives from PitchNet (Session Loops), which derives from HachiTune.
+# Shown in the Windows file properties and the macOS bundle info.
+set(PITCHNET_COPYRIGHT
+    "Copyright 2026 Fearnus, Session Loops and the HachiTune contributors")
 
 # Per-dirty-note synthesis diagnostics. synthesizeRegion() always logs a few
 # fixed lines per pass, which is bounded and cheap. Underneath them it can also
@@ -253,12 +258,12 @@ endif()
 option(PITCHNET_SYNTH_NOTE_DIAGNOSTICS "Log one line per dirty note on every synthesis pass" OFF)
 
 # Create GUI application
-juce_add_gui_app(PitchNet
+juce_add_gui_app(PitchGuide
     PRODUCT_NAME "${PITCHNET_PRODUCT_NAME}"
-    COMPANY_NAME "Session Loops"
-    COMPANY_WEBSITE "https://sessionloops.com"
+    COMPANY_NAME "Fearnus"
+    COMPANY_WEBSITE "https://github.com/Fearnus/PitchGuide"
     BUNDLE_ID "${PITCHNET_BUNDLE_ID}"
-    COMPANY_COPYRIGHT "Copyright 2026"
+    COMPANY_COPYRIGHT "${PITCHNET_COPYRIGHT}"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/images/icon.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Resources/images/icon.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -305,12 +310,13 @@ else()
 endif()
 
 # Create VST3 plugin
-juce_add_plugin(PitchNetPlugin
+juce_add_plugin(PitchGuidePlugin
     PRODUCT_NAME "${PITCHNET_PRODUCT_NAME}"
-    COMPANY_NAME "Session Loops"
-    COMPANY_WEBSITE "https://sessionloops.com"
+    COMPANY_NAME "Fearnus"
+    COMPANY_WEBSITE "https://github.com/Fearnus/PitchGuide"
     BUNDLE_ID "${PITCHNET_BUNDLE_ID}"
-    PLUGIN_MANUFACTURER_CODE SLPS
+    COMPANY_COPYRIGHT "${PITCHNET_COPYRIGHT}"
+    PLUGIN_MANUFACTURER_CODE Frns
     PLUGIN_CODE ${PITCHNET_PLUGIN_CODE}
     FORMATS ${PITCHNET_PLUGIN_FORMATS}
     AAX_CATEGORY AAX_ePlugInCategory_PitchShift
@@ -339,7 +345,7 @@ juce_add_plugin(PitchNetPlugin
 if(MSVC)
     set(PITCHNET_ILK_DIR "${CMAKE_BINARY_DIR}/ilk")
     file(MAKE_DIRECTORY "${PITCHNET_ILK_DIR}")
-    foreach(_pn_ilk_target PitchNet PitchNetPlugin_VST3 PitchNetPlugin_AAX)
+    foreach(_pn_ilk_target PitchGuide PitchGuidePlugin_VST3 PitchGuidePlugin_AAX)
         if(TARGET ${_pn_ilk_target})
             target_link_options(${_pn_ilk_target} PRIVATE
                 "$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:/ILK:${PITCHNET_ILK_DIR}/${_pn_ilk_target}-$<CONFIG>.ilk>")
@@ -349,17 +355,17 @@ endif()
 
 # ARA compile definitions
 if(ARA_AVAILABLE)
-    target_compile_definitions(PitchNetPlugin PRIVATE
+    target_compile_definitions(PitchGuidePlugin PRIVATE
         JucePlugin_Enable_ARA=1)
     if(PITCHNET_ARA_DIAGNOSTICS)
-        target_compile_definitions(PitchNetPlugin PRIVATE
+        target_compile_definitions(PitchGuidePlugin PRIVATE
             PITCHNET_ARA_DIAGNOSTICS=1)
-        message(STATUS "PitchNet: ARA diagnostics ENABLED "
-                       "(logs to %APPDATA%/PitchNet/Logs/debug_<session>.log)")
+        message(STATUS "PitchGuide: ARA diagnostics ENABLED "
+                       "(logs to %APPDATA%/PitchGuide/Logs/debug_<session>.log)")
     endif()
 endif()
 if(AAX_AVAILABLE)
-    target_include_directories(PitchNetPlugin PRIVATE
+    target_include_directories(PitchGuidePlugin PRIVATE
         ${AAX_SDK_PATH}
         ${AAX_SDK_PATH}/Interfaces
         ${AAX_SDK_PATH}/Interfaces/ACF)
@@ -406,11 +412,11 @@ file(GLOB PLUGIN_SOURCES
     "Source/Plugin/NonAraCaptureController.cpp" "Source/Plugin/NonAraCaptureController.h"
     "Source/Plugin/HostCompatibility.cpp" "Source/Plugin/HostCompatibility.h")
 
-target_sources(PitchNet PRIVATE
+target_sources(PitchGuide PRIVATE
     Source/Main.cpp
     )
 
-target_sources(PitchNetPlugin PRIVATE
+target_sources(PitchGuidePlugin PRIVATE
     ${PLUGIN_SOURCES}
     )
 
@@ -422,7 +428,7 @@ target_include_directories(pitchnet_core PRIVATE ${R8BRAIN_INCLUDE_DIR})
 
 if(PITCHNET_SYNTH_NOTE_DIAGNOSTICS)
     target_compile_definitions(pitchnet_core PUBLIC PITCHNET_SYNTH_NOTE_DIAGNOSTICS=1)
-    message(STATUS "PitchNet: per-note synthesis diagnostics ENABLED")
+    message(STATUS "PitchGuide: per-note synthesis diagnostics ENABLED")
 endif()
 
 # Binary data for toolbar images/icons
@@ -474,7 +480,7 @@ if(NOT MSVC)
 endif()
 
 # Link JUCE modules
-target_link_libraries(PitchNet PRIVATE
+target_link_libraries(PitchGuide PRIVATE
     pitchnet_ui
     pitchnet_core
     juce::juce_gui_basics
@@ -488,7 +494,7 @@ target_link_libraries(PitchNet PRIVATE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags)
 
-target_link_libraries(PitchNetPlugin PRIVATE
+target_link_libraries(PitchGuidePlugin PRIVATE
     pitchnet_ui
     pitchnet_core
     juce::juce_gui_basics
@@ -518,7 +524,7 @@ if(ONNXRUNTIME_FOUND)
     endif()
 
     if(WIN32 AND MSVC)
-        foreach(PITCHNET_TARGET PitchNet PitchNetPlugin_VST3 PitchNetPlugin_AAX)
+        foreach(PITCHNET_TARGET PitchGuide PitchGuidePlugin_VST3 PitchGuidePlugin_AAX)
             if(TARGET ${PITCHNET_TARGET})
                 target_link_options(${PITCHNET_TARGET} PRIVATE "/DELAYLOAD:onnxruntime.dll")
                 target_link_libraries(${PITCHNET_TARGET} PRIVATE delayimp)
@@ -527,7 +533,7 @@ if(ONNXRUNTIME_FOUND)
     endif()
 
     if(WIN32 AND MSVC)
-        foreach(PITCHNET_TARGET PitchNet PitchNetPlugin_VST3 PitchNetPlugin_AAX)
+        foreach(PITCHNET_TARGET PitchGuide PitchGuidePlugin_VST3 PitchGuidePlugin_AAX)
             if(TARGET ${PITCHNET_TARGET})
                 target_link_options(${PITCHNET_TARGET} PRIVATE "/DELAYLOAD:onnxruntime.dll")
                 target_link_libraries(${PITCHNET_TARGET} PRIVATE delayimp)
@@ -563,20 +569,20 @@ if(ONNXRUNTIME_FOUND)
         if(ONNXRUNTIME_DLLS)
             foreach(DLL ${ONNXRUNTIME_DLLS})
                 message(STATUS "Will copy ONNX Runtime DLL: ${DLL}")
-                add_custom_command(TARGET PitchNet POST_BUILD
+                add_custom_command(TARGET PitchGuide POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DLL}"
-                    "$<TARGET_FILE_DIR:PitchNet>")
+                    "$<TARGET_FILE_DIR:PitchGuide>")
 
-                add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
+                add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DLL}"
-                    "$<TARGET_FILE_DIR:PitchNetPlugin_VST3>")
-                if(TARGET PitchNetPlugin_AAX)
-                    add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
+                    "$<TARGET_FILE_DIR:PitchGuidePlugin_VST3>")
+                if(TARGET PitchGuidePlugin_AAX)
+                    add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${DLL}"
-                        "$<TARGET_FILE_DIR:PitchNetPlugin_AAX>")
+                        "$<TARGET_FILE_DIR:PitchGuidePlugin_AAX>")
                 endif()
             endforeach()
         else()
@@ -663,20 +669,20 @@ if(ONNXRUNTIME_FOUND)
                     set(CUDA_DLL_PATH "${CUDA_BIN_DIR}/${CUDA_DLL}")
                     if(EXISTS "${CUDA_DLL_PATH}")
                         message(STATUS "Will copy CUDA DLL: ${CUDA_DLL}")
-                        add_custom_command(TARGET PitchNet POST_BUILD
+                        add_custom_command(TARGET PitchGuide POST_BUILD
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             "${CUDA_DLL_PATH}"
-                            "$<TARGET_FILE_DIR:PitchNet>")
+                            "$<TARGET_FILE_DIR:PitchGuide>")
                         
-                        add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
+                        add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             "${CUDA_DLL_PATH}"
-                            "$<TARGET_FILE_DIR:PitchNetPlugin_VST3>")
-                        if(TARGET PitchNetPlugin_AAX)
-                            add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
+                            "$<TARGET_FILE_DIR:PitchGuidePlugin_VST3>")
+                        if(TARGET PitchGuidePlugin_AAX)
+                            add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
                                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                 "${CUDA_DLL_PATH}"
-                                "$<TARGET_FILE_DIR:PitchNetPlugin_AAX>")
+                                "$<TARGET_FILE_DIR:PitchGuidePlugin_AAX>")
                         endif()
                     endif()
                 endforeach()
@@ -742,20 +748,20 @@ if(ONNXRUNTIME_FOUND)
                     set(DML_DLL_PATH "${DML_BIN_DIR}/${DML_DLL}")
                     if(EXISTS "${DML_DLL_PATH}")
                         message(STATUS "Will copy DirectML DLL: ${DML_DLL_PATH}")
-                        add_custom_command(TARGET PitchNet POST_BUILD
+                        add_custom_command(TARGET PitchGuide POST_BUILD
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             "${DML_DLL_PATH}"
-                            "$<TARGET_FILE_DIR:PitchNet>")
+                            "$<TARGET_FILE_DIR:PitchGuide>")
 
-                        add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
+                        add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             "${DML_DLL_PATH}"
-                            "$<TARGET_FILE_DIR:PitchNetPlugin_VST3>")
-                        if(TARGET PitchNetPlugin_AAX)
-                            add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
+                            "$<TARGET_FILE_DIR:PitchGuidePlugin_VST3>")
+                        if(TARGET PitchGuidePlugin_AAX)
+                            add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
                                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                 "${DML_DLL_PATH}"
-                                "$<TARGET_FILE_DIR:PitchNetPlugin_AAX>")
+                                "$<TARGET_FILE_DIR:PitchGuidePlugin_AAX>")
                         endif()
                     endif()
                 endforeach()
@@ -773,73 +779,73 @@ if(ONNXRUNTIME_FOUND)
         if(ONNXRUNTIME_DYLIBS)
             list(GET ONNXRUNTIME_DYLIBS 0 ONNXRUNTIME_VERSIONED_DYLIB)
             get_filename_component(ONNXRUNTIME_VERSIONED_DYLIB_NAME "${ONNXRUNTIME_VERSIONED_DYLIB}" NAME)
-            add_custom_command(TARGET PitchNet POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchNet>/Contents/Frameworks"
-                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchNet>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
-            add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>/Contents/Frameworks"
-                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
-            add_custom_command(TARGET PitchNetPlugin_AU POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>/Contents/Frameworks"
-                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
-            if(TARGET PitchNetPlugin_AAX)
-                add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>/Contents/Frameworks"
-                    COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
+            add_custom_command(TARGET PitchGuide POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchGuide>/Contents/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchGuide>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
+            add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>/Contents/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
+            add_custom_command(TARGET PitchGuidePlugin_AU POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>/Contents/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
+            if(TARGET PitchGuidePlugin_AAX)
+                add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>/Contents/Frameworks"
+                    COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
             endif()
             foreach(DYLIB ${ONNXRUNTIME_DYLIBS})
                 message(STATUS "Will embed ONNX Runtime dylib: ${DYLIB}")
                 # Standalone app
-                add_custom_command(TARGET PitchNet POST_BUILD
+                add_custom_command(TARGET PitchGuide POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DYLIB}"
-                    "$<TARGET_BUNDLE_DIR:PitchNet>/Contents/Frameworks/")
+                    "$<TARGET_BUNDLE_DIR:PitchGuide>/Contents/Frameworks/")
                 # VST3 plugin
-                add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
+                add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DYLIB}"
-                    "$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>/Contents/Frameworks/")
+                    "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>/Contents/Frameworks/")
                 # AU plugin
-                add_custom_command(TARGET PitchNetPlugin_AU POST_BUILD
+                add_custom_command(TARGET PitchGuidePlugin_AU POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${DYLIB}"
-                    "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>/Contents/Frameworks/")
+                    "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>/Contents/Frameworks/")
                 # AAX plugin
-                if(TARGET PitchNetPlugin_AAX)
-                    add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
+                if(TARGET PitchGuidePlugin_AAX)
+                    add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
                         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "${DYLIB}"
-                        "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>/Contents/Frameworks/")
+                        "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>/Contents/Frameworks/")
                 endif()
             endforeach()
-            add_custom_command(TARGET PitchNet POST_BUILD
+            add_custom_command(TARGET PitchGuide POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E create_symlink
                 "${ONNXRUNTIME_VERSIONED_DYLIB_NAME}"
-                "$<TARGET_BUNDLE_DIR:PitchNet>/Contents/Frameworks/libonnxruntime.dylib")
-            add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
+                "$<TARGET_BUNDLE_DIR:PitchGuide>/Contents/Frameworks/libonnxruntime.dylib")
+            add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E create_symlink
                 "${ONNXRUNTIME_VERSIONED_DYLIB_NAME}"
-                "$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>/Contents/Frameworks/libonnxruntime.dylib")
-            add_custom_command(TARGET PitchNetPlugin_AU POST_BUILD
+                "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>/Contents/Frameworks/libonnxruntime.dylib")
+            add_custom_command(TARGET PitchGuidePlugin_AU POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E create_symlink
                 "${ONNXRUNTIME_VERSIONED_DYLIB_NAME}"
-                "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>/Contents/Frameworks/libonnxruntime.dylib")
-            if(TARGET PitchNetPlugin_AAX)
-                add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
+                "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>/Contents/Frameworks/libonnxruntime.dylib")
+            if(TARGET PitchGuidePlugin_AAX)
+                add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E create_symlink
                     "${ONNXRUNTIME_VERSIONED_DYLIB_NAME}"
-                    "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>/Contents/Frameworks/libonnxruntime.dylib")
+                    "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>/Contents/Frameworks/libonnxruntime.dylib")
             endif()
             # Fix rpath for all targets using install_name_tool
-            add_custom_command(TARGET PitchNet POST_BUILD
-                COMMAND install_name_tool -add_rpath "@executable_path/../Frameworks" "$<TARGET_FILE:PitchNet>" 2>/dev/null || true)
-            add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
-                COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
-            add_custom_command(TARGET PitchNetPlugin_AU POST_BUILD
-                COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
-            if(TARGET PitchNetPlugin_AAX)
-                add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
-                    COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
+            add_custom_command(TARGET PitchGuide POST_BUILD
+                COMMAND install_name_tool -add_rpath "@executable_path/../Frameworks" "$<TARGET_FILE:PitchGuide>" 2>/dev/null || true)
+            add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
+                COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
+            add_custom_command(TARGET PitchGuidePlugin_AU POST_BUILD
+                COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
+            if(TARGET PitchGuidePlugin_AAX)
+                add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
+                    COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>/Contents/MacOS/${PITCHNET_PRODUCT_NAME}" 2>/dev/null || true)
             endif()
         endif()
     endif()
@@ -853,8 +859,8 @@ if(APPLE)
 endif()
 
 # Set C++ standard
-target_compile_features(PitchNet PRIVATE cxx_std_17)
-target_compile_features(PitchNetPlugin PRIVATE cxx_std_17)
+target_compile_features(PitchGuide PRIVATE cxx_std_17)
+target_compile_features(PitchGuidePlugin PRIVATE cxx_std_17)
 
 # Platform-specific settings
 if(WIN32)
@@ -887,14 +893,14 @@ target_compile_definitions(pitchnet_ui PUBLIC
     JUCE_USE_CURL=0
     JUCE_MODAL_LOOPS_PERMITTED=1)
 
-target_compile_definitions(PitchNet PRIVATE
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:PitchNet,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:PitchNet,JUCE_VERSION>")
+target_compile_definitions(PitchGuide PRIVATE
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:PitchGuide,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:PitchGuide,JUCE_VERSION>")
 
-target_compile_definitions(PitchNetPlugin PRIVATE
+target_compile_definitions(PitchGuidePlugin PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:PitchNetPlugin,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:PitchNetPlugin,JUCE_VERSION>")
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:PitchGuidePlugin,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:PitchGuidePlugin,JUCE_VERSION>")
 
 # Check required models
 set(MODELS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Resources/models")
@@ -991,18 +997,18 @@ endif()
 
 # Re-sign bundles on macOS after all resources are copied
 if(APPLE)
-    add_custom_command(TARGET PitchNet POST_BUILD
-        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchNet>" 2>/dev/null || true
-        COMMENT "Re-signing PitchNet bundle")
-    add_custom_command(TARGET PitchNetPlugin_VST3 POST_BUILD
-        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchNetPlugin_VST3>" 2>/dev/null || true
+    add_custom_command(TARGET PitchGuide POST_BUILD
+        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchGuide>" 2>/dev/null || true
+        COMMENT "Re-signing PitchGuide bundle")
+    add_custom_command(TARGET PitchGuidePlugin_VST3 POST_BUILD
+        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_VST3>" 2>/dev/null || true
         COMMENT "Re-signing VST3 bundle")
-    add_custom_command(TARGET PitchNetPlugin_AU POST_BUILD
-        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AU>" 2>/dev/null || true
+    add_custom_command(TARGET PitchGuidePlugin_AU POST_BUILD
+        COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AU>" 2>/dev/null || true
         COMMENT "Re-signing AU bundle")
-    if(TARGET PitchNetPlugin_AAX)
-        add_custom_command(TARGET PitchNetPlugin_AAX POST_BUILD
-            COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchNetPlugin_AAX>" 2>/dev/null || true
+    if(TARGET PitchGuidePlugin_AAX)
+        add_custom_command(TARGET PitchGuidePlugin_AAX POST_BUILD
+            COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:PitchGuidePlugin_AAX>" 2>/dev/null || true
             COMMENT "Re-signing AAX bundle")
     endif()
 endif()

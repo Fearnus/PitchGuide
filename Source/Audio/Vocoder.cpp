@@ -66,7 +66,7 @@ Vocoder::Vocoder()
   try
   {
     onnxEnv =
-        std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "PitchNet");
+        std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "PitchGuide");
     allocator = std::make_unique<Ort::AllocatorWithDefaultOptions>();
     log("ONNX Runtime initialized successfully");
   }

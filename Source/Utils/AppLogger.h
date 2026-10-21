@@ -9,7 +9,7 @@
 
 /**
  * Simple file logger for debugging.
- * Logs to %APPDATA%/PitchNet/debug.log
+ * Logs to %APPDATA%/PitchGuide/debug.log
  */
 class AppLogger {
 public:

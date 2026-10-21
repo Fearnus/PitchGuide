@@ -7,8 +7,8 @@
   "canvas.timing": "Timing",
   "category.edit_mode": "Edit Mode",
   "category.transport": "Transport",
-  "command.about": "About PitchNet",
-  "command.about.desp": "About PitchNet and third-party notices",
+  "command.about": "About PitchGuide",
+  "command.about.desp": "About PitchGuide and third-party notices",
   "command.pitch_drawing_tool": "Pitch Drawing Tool",
   "command.pitch_drawing_tool.desp": "Activate the pitch drawing tool",
   "command.export_audio": "Export Audio...",
@@ -271,7 +271,7 @@
   "tooltip.region_view_track": "Track mode: showing every clip on the track. Click to show only the selected clip's source.",
   "update.ask_later": "Ask Me Later",
   "update.download_now": "Download Now",
-  "update.message": "A new version of PitchNet is available. Would you like to download it?",
+  "update.message": "A new version of PitchGuide is available. Would you like to download it?",
   "update.skip_version": "Skip This Version",
   "update.title": "Update Available"
 }

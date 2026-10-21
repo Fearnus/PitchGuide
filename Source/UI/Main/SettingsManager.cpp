@@ -12,7 +12,7 @@ juce::File SettingsManager::getSettingsFile()
 {
   return juce::File::getSpecialLocation(
              juce::File::userApplicationDataDirectory)
-      .getChildFile("PitchNet")
+      .getChildFile("PitchGuide")
       .getChildFile("settings.xml");
 }
 

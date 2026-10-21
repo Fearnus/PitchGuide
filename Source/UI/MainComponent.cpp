@@ -118,32 +118,20 @@ std::optional<UpdateInfo> fetchLatestUpdateInfo(juce::WebInputStream &request)
   if (!request.connect(nullptr))
     return std::nullopt;
 
-  const auto response = request.readEntireStreamAsString();
-  auto parsed = juce::JSON::parse(response);
-  auto data = parsed.getProperty("data", {});
+  // GitHub's "latest release" skips drafts and pre-releases. Any error
+  // response has no tag_name, so it reads as "no update".
+  const auto release = juce::JSON::parse(request.readEntireStreamAsString());
+  const auto latestVersion =
+      normalizeVersionString(release.getProperty("tag_name", "").toString());
 
-  if (!data.isArray())
+  if (latestVersion.isEmpty() ||
+      compareVersions(latestVersion, getCurrentApplicationVersion()) <= 0)
     return std::nullopt;
 
-  for (const auto &product : *data.getArray())
-  {
-    if (product.getProperty("appId", "").toString() != "PitchNet")
-      continue;
-
-    const auto latestVersion =
-        normalizeVersionString(product.getProperty("version", "").toString());
-
-    if (latestVersion.isEmpty() ||
-        compareVersions(latestVersion, getCurrentApplicationVersion()) <= 0)
-      return std::nullopt;
-
-    UpdateInfo info;
-    info.version = latestVersion;
-    info.releaseNotes = product.getProperty("log", "").toString();
-    return info;
-  }
-
-  return std::nullopt;
+  UpdateInfo info;
+  info.version = latestVersion;
+  info.releaseNotes = release.getProperty("body", "").toString();
+  return info;
 }
 
 void styleUpdateButton(juce::TextButton &button)
@@ -1162,7 +1150,7 @@ void MainComponent::checkForUpdatesOnLaunch()
   juce::Component::SafePointer<MainComponent> safeThis(this);
 
   updateRequest = std::make_unique<juce::WebInputStream>(
-      juce::URL("https://sessionloops.com/api/app/getApps"), false);
+      juce::URL("https://api.github.com/repos/Fearnus/PitchGuide/releases/latest"), false);
   updateRequest->withConnectionTimeout(3000);
 
   updateCheckThread = std::thread([this, safeThis, skippedVersion]
@@ -1199,7 +1187,7 @@ void MainComponent::showUpdateAvailablePopup(const juce::String &latestVersion,
       },
       []
       {
-        juce::Process::openDocument("https://sessionloops.com/pitchnet#downloads", "");
+        juce::Process::openDocument("https://github.com/Fearnus/PitchGuide/releases/latest", "");
       });
 
   dialog->setVisible(true);

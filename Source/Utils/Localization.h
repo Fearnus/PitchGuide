@@ -140,7 +140,7 @@ public:
 
     auto settingsFile =
         juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("PitchNet")
+            .getChildFile("PitchGuide")
             .getChildFile("settings.xml");
 
     if (settingsFile.existsAsFile()) {

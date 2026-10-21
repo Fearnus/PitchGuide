@@ -6,9 +6,9 @@ Usage:
                                              [--max-regions 20] [--merge-gap 0]
 
 Reports whether the two files are sample-identical. If they are not, it lists
-where they differ as contiguous regions, in samples, seconds and PitchNet
+where they differ as contiguous regions, in samples, seconds and PitchGuide
 analysis frames (hop 512 at 44.1 kHz by default), so a region can be matched
-against the commit=[start,end) ranges in PitchNet's debug log.
+against the commit=[start,end) ranges in PitchGuide's debug log.
 
 Supports PCM 8/16/24/32-bit, IEEE float 32/64-bit and WAVE_FORMAT_EXTENSIBLE.
 Uses only the standard library; numpy is used automatically if installed.
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover - optional speed-up
 WAVE_FORMAT_PCM = 0x0001
 WAVE_FORMAT_IEEE_FLOAT = 0x0003
 WAVE_FORMAT_EXTENSIBLE = 0xFFFE
-ANALYSIS_RATE = 44100  # PitchNet's analysis frame grid is HOP_SIZE at 44.1 kHz
+ANALYSIS_RATE = 44100  # PitchGuide's analysis frame grid is HOP_SIZE at 44.1 kHz
 
 
 class WavInfo:
@@ -182,7 +182,7 @@ def main():
                         help="max absolute difference (full scale = 1.0) "
                              "still counted as equal; default 0 = exact")
     parser.add_argument("--hop", type=int, default=512,
-                        help="PitchNet hop size for frame numbers (default 512)")
+                        help="PitchGuide hop size for frame numbers (default 512)")
     parser.add_argument("--max-regions", type=int, default=20,
                         help="how many differing regions to list (default 20)")
     parser.add_argument("--merge-gap", type=int, default=0,
@@ -245,7 +245,7 @@ def main():
     regions = regions_from_flags(flags, args.merge_gap)
     print(f"{len(regions)} differing region(s):")
     print("   samples [start,end)        seconds [start,end)      "
-          "PitchNet frames [start,end)")
+          "PitchGuide frames [start,end)")
     for start, end in regions[:args.max_regions]:
         f0 = int(start // samples_per_frame)
         f1 = int(-(-end // samples_per_frame))  # ceil

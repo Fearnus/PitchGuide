@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a self-extracting Linux installer (.run) for PitchNet, bundling the
+# Builds a self-extracting Linux installer (.run) for PitchGuide, bundling the
 # standalone app, the VST3 plugin, and all required models/resources.
 #
 # Usage: packaging/linux/build_installer.sh [build-dir]
@@ -11,14 +11,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$(cd "${1:-$ROOT_DIR/build}" && pwd)"
 
-VERSION="$(grep -oP 'project\(PitchNet VERSION \K[0-9.]+' "$ROOT_DIR/CMakeLists.txt")"
+VERSION="$(grep -oP 'project\(PitchGuide VERSION \K[0-9.]+' "$ROOT_DIR/CMakeLists.txt")"
 ARCH="x86_64"
-APP_NAME="PitchNet"
-COMPANY_DIR="Session Loops"
+APP_NAME="PitchGuide"
+COMPANY_DIR="Fearnus"
 INSTALL_PREFIX="/opt/${COMPANY_DIR}/${APP_NAME}"
 
-STANDALONE_BIN="$BUILD_DIR/PitchNet_artefacts/Release/PitchNet"
-VST3_BUNDLE="$BUILD_DIR/PitchNetPlugin_artefacts/Release/VST3/PitchNet.vst3"
+STANDALONE_BIN="$BUILD_DIR/PitchGuide_artefacts/Release/PitchGuide"
+VST3_BUNDLE="$BUILD_DIR/PitchGuidePlugin_artefacts/Release/VST3/PitchGuide.vst3"
 ONNX_LIB_DIR="$BUILD_DIR/_deps/onnxruntime-1.19.2-src/lib"
 
 for f in "$STANDALONE_BIN" "$VST3_BUNDLE" "$ONNX_LIB_DIR"; do
@@ -42,8 +42,8 @@ mkdir -p "$PAYLOAD/usr/share/applications"
 mkdir -p "$PAYLOAD/usr/share/icons/hicolor/512x512/apps"
 
 echo "==> Staging standalone app"
-cp "$STANDALONE_BIN" "$APP_DIR/PitchNet"
-chmod 755 "$APP_DIR/PitchNet"
+cp "$STANDALONE_BIN" "$APP_DIR/PitchGuide"
+chmod 755 "$APP_DIR/PitchGuide"
 
 echo "==> Staging ONNX Runtime"
 cp -P "$ONNX_LIB_DIR/libonnxruntime.so" "$ONNX_LIB_DIR/libonnxruntime.so.1" "$APP_DIR/lib/"
@@ -56,22 +56,22 @@ cp -r "$ROOT_DIR/Resources/lang" "$APP_DIR/lang"
 cp -r "$ROOT_DIR/Resources/fonts" "$APP_DIR/fonts"
 
 echo "==> Fixing standalone RPATH"
-patchelf --set-rpath '$ORIGIN/lib' "$APP_DIR/PitchNet"
+patchelf --set-rpath '$ORIGIN/lib' "$APP_DIR/PitchGuide"
 
 echo "==> Staging VST3 plugin"
-cp -r "$VST3_BUNDLE" "$PAYLOAD/vst3/PitchNet.vst3"
-PLUGIN_SO="$PAYLOAD/vst3/PitchNet.vst3/Contents/x86_64-linux/PitchNet.so"
+cp -r "$VST3_BUNDLE" "$PAYLOAD/vst3/PitchGuide.vst3"
+PLUGIN_SO="$PAYLOAD/vst3/PitchGuide.vst3/Contents/x86_64-linux/PitchGuide.so"
 patchelf --set-rpath "${INSTALL_PREFIX}/lib" "$PLUGIN_SO"
 
 echo "==> Staging desktop integration"
-cp "$ROOT_DIR/Resources/images/icon.png" "$PAYLOAD/usr/share/icons/hicolor/512x512/apps/pitchnet.png"
-cat > "$PAYLOAD/usr/share/applications/pitchnet.desktop" <<EOF
+cp "$ROOT_DIR/Resources/images/icon.png" "$PAYLOAD/usr/share/icons/hicolor/512x512/apps/pitchguide.png"
+cat > "$PAYLOAD/usr/share/applications/pitchguide.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=PitchNet
-Comment=Neural pitch editor
-Exec=/usr/local/bin/pitchnet %f
-Icon=pitchnet
+Name=PitchGuide
+Comment=Vocal pitch editor
+Exec=/usr/local/bin/pitchguide %f
+Icon=pitchguide
 Terminal=false
 Categories=AudioVideo;Audio;Music;
 EOF
@@ -97,14 +97,14 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAYLOAD="$SCRIPT_DIR/payload"
 
-echo "Installing PitchNet ${VERSION}..."
+echo "Installing PitchGuide ${VERSION}..."
 
 mkdir -p "/opt/${COMPANY_DIR}"
 chmod 755 "/opt/${COMPANY_DIR}"
 rm -rf "${INSTALL_PREFIX}"
 cp -r "$PAYLOAD/opt/${COMPANY_DIR}/${APP_NAME}" "${INSTALL_PREFIX}"
 chmod -R a+rX "${INSTALL_PREFIX}"
-chmod 755 "${INSTALL_PREFIX}/PitchNet"
+chmod 755 "${INSTALL_PREFIX}/PitchGuide"
 
 if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
     VST3_USER="${SUDO_USER}"
@@ -117,19 +117,19 @@ if [ -z "${VST3_HOME}" ]; then
 else
     VST3_DIR="${VST3_HOME}/.vst3"
     mkdir -p "${VST3_DIR}"
-    rm -rf "${VST3_DIR}/PitchNet.vst3"
-    cp -r "$PAYLOAD/vst3/PitchNet.vst3" "${VST3_DIR}/PitchNet.vst3"
-    chown -R "${VST3_USER}:$(id -gn "${VST3_USER}")" "${VST3_DIR}/PitchNet.vst3"
-    chmod -R u+rwX,go+rX "${VST3_DIR}/PitchNet.vst3"
+    rm -rf "${VST3_DIR}/PitchGuide.vst3"
+    cp -r "$PAYLOAD/vst3/PitchGuide.vst3" "${VST3_DIR}/PitchGuide.vst3"
+    chown -R "${VST3_USER}:$(id -gn "${VST3_USER}")" "${VST3_DIR}/PitchGuide.vst3"
+    chmod -R u+rwX,go+rX "${VST3_DIR}/PitchGuide.vst3"
 fi
 
 mkdir -p /usr/share/applications /usr/share/icons/hicolor/512x512/apps
 chmod 755 /usr/share/applications /usr/share/icons/hicolor/512x512/apps
-cp "$PAYLOAD/usr/share/applications/pitchnet.desktop" /usr/share/applications/pitchnet.desktop
-cp "$PAYLOAD/usr/share/icons/hicolor/512x512/apps/pitchnet.png" /usr/share/icons/hicolor/512x512/apps/pitchnet.png
-chmod a+r /usr/share/applications/pitchnet.desktop /usr/share/icons/hicolor/512x512/apps/pitchnet.png
+cp "$PAYLOAD/usr/share/applications/pitchguide.desktop" /usr/share/applications/pitchguide.desktop
+cp "$PAYLOAD/usr/share/icons/hicolor/512x512/apps/pitchguide.png" /usr/share/icons/hicolor/512x512/apps/pitchguide.png
+chmod a+r /usr/share/applications/pitchguide.desktop /usr/share/icons/hicolor/512x512/apps/pitchguide.png
 
-ln -sf "${INSTALL_PREFIX}/PitchNet" /usr/local/bin/pitchnet
+ln -sf "${INSTALL_PREFIX}/PitchGuide" /usr/local/bin/pitchguide
 
 cat > "${INSTALL_PREFIX}/uninstall.sh" <<UNINSTALL_EOF
 #!/usr/bin/env bash
@@ -140,12 +140,12 @@ if [ "\$(id -u)" -ne 0 ]; then
 fi
 rm -rf "${INSTALL_PREFIX}"
 if [ -n "${VST3_HOME}" ]; then
-    rm -rf "${VST3_HOME}/.vst3/PitchNet.vst3"
+    rm -rf "${VST3_HOME}/.vst3/PitchGuide.vst3"
 fi
-rm -f /usr/local/bin/pitchnet
-rm -f /usr/share/applications/pitchnet.desktop
-rm -f /usr/share/icons/hicolor/512x512/apps/pitchnet.png
-echo "PitchNet uninstalled."
+rm -f /usr/local/bin/pitchguide
+rm -f /usr/share/applications/pitchguide.desktop
+rm -f /usr/share/icons/hicolor/512x512/apps/pitchguide.png
+echo "PitchGuide uninstalled."
 UNINSTALL_EOF
 chmod +x "${INSTALL_PREFIX}/uninstall.sh"
 
@@ -166,10 +166,10 @@ for lib in libasound.so.2 libfontconfig.so.1 libfreetype.so.6; do
 done
 
 echo ""
-echo "PitchNet ${VERSION} installed."
-echo "  Standalone: run 'pitchnet' or find PitchNet in your applications menu."
+echo "PitchGuide ${VERSION} installed."
+echo "  Standalone: run 'pitchguide' or find PitchGuide in your applications menu."
 if [ -n "${VST3_HOME}" ]; then
-    echo "  VST3 plugin: ${VST3_HOME}/.vst3/PitchNet.vst3"
+    echo "  VST3 plugin: ${VST3_HOME}/.vst3/PitchGuide.vst3"
 fi
 echo "  Uninstall:   sudo ${INSTALL_PREFIX}/uninstall.sh"
 INSTALL_EOF
@@ -184,8 +184,8 @@ chmod +x "$STAGE/install.sh"
 
 echo "==> Packaging with makeself"
 mkdir -p "$ROOT_DIR/dist"
-OUT="$ROOT_DIR/dist/PitchNet-Linux-${ARCH}.run"
-makeself --gzip "$STAGE" "$OUT" "PitchNet ${VERSION} Installer" ./install.sh
+OUT="$ROOT_DIR/dist/PitchGuide-Linux-${ARCH}.run"
+makeself --gzip "$STAGE" "$OUT" "PitchGuide ${VERSION} Installer" ./install.sh
 
 echo ""
 echo "Installer created: $OUT"
