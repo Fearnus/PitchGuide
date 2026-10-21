@@ -55,7 +55,7 @@ jobs:
             makeself
 
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DPITCHNET_BUILD_TESTS=ON
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DPITCHNET_BUILD_TESTS=ON -DPITCHNET_BUILD_TOOLS=ON
 
       - name: Build
         run: cmake --build build --parallel
