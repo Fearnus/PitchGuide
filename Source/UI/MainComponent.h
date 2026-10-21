@@ -17,6 +17,8 @@
 #include "TrackListPanel.h"
 #include "PianoRollComponent.h"
 #include "PianoRollWorkspaceView.h"
+#include "ReferenceDropOverlay.h"
+#include "../Audio/ReferenceAnalyzer.h"
 #include "SettingsOverlay.h"
 #include "ToolbarComponent.h"
 #include "Workspace/WorkspaceComponent.h"
@@ -112,9 +114,15 @@ public:
   void mouseDrag(const juce::MouseEvent &e) override;
   void mouseDoubleClick(const juce::MouseEvent &e) override;
 
-  // FileDragAndDropTarget
+  // FileDragAndDropTarget. Dragging audio shows the reference / take targets.
   bool isInterestedInFileDrag(const juce::StringArray &files) override;
+  void fileDragEnter(const juce::StringArray &files, int x, int y) override;
+  void fileDragMove(const juce::StringArray &files, int x, int y) override;
+  void fileDragExit(const juce::StringArray &files) override;
   void filesDropped(const juce::StringArray &files, int x, int y) override;
+
+  // Analyzes `file` and guides the current take (and later ones) towards it.
+  void loadReferenceFile(const juce::File &file);
 
   // Opens a project or audio file chosen outside the UI (command line, file
   // manager). Ignored in plugin mode and for files that no longer exist.
@@ -156,6 +164,10 @@ public:
   }
   void setOnPitchEditFinished(std::function<void()> callback) override {
     onPitchEditFinished = std::move(callback);
+  }
+  void setOnTakeFileDropped(
+      std::function<void(const juce::File &)> callback) override {
+    onTakeFileDropped = std::move(callback);
   }
   void setOnRequestBackendRender(
       std::function<void(const Project &)> callback) override {
@@ -253,6 +265,8 @@ public:
       onProjectDataChanged; // Called when project data is ready or changed
   std::function<void()>
       onPitchEditFinished; // Called when pitch editing is finished
+  std::function<void(const juce::File &)>
+      onTakeFileDropped; // Plug-in only: analyze a dropped file as the take
                            // (Melodyne-style: triggers real-time update)
   std::function<void(const Project &)> onRequestBackendRender;
   std::function<void(const Project &, int, int)> onRequestBackendPreview;
@@ -425,6 +439,12 @@ private:
   std::unique_ptr<juce::WebInputStream> updateRequest;
   std::thread updateCheckThread;
   std::atomic<bool> stoppingUpdateCheck{false};
+
+  // Reference vocal: drop targets, and the analysis of a dropped reference.
+  // Destroying the job waits for its thread, so it never outlives the view.
+  void applyReference(ReferenceTrack reference);
+  ReferenceDropOverlay dropOverlay;
+  std::unique_ptr<ReferenceAnalysisJob> referenceJob;
 
   // Async load state
   std::atomic<bool> isLoadingAudio{false};

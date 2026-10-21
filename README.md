@@ -38,10 +38,11 @@ hosts and a non-ARA capture workflow.
 
 PitchGuide is being reworked step by step from the PitchNet codebase:
 
-1. Rebrand and working CI.
-2. Time-align a new take to an isolated reference vocal (DTW prototype).
-3. "Match reference" pitch correction in the editor.
-4. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
+1. Rebrand and working CI (done).
+2. Time-align a new take to an isolated reference vocal (done).
+3. Drop in a reference and a take; show the reference pitch over the take (done).
+4. "Match reference" pitch correction in the editor.
+5. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
 
 ## Features
 
@@ -170,6 +171,22 @@ Notes:
 3. Edit notes in the piano roll — adjust pitch, timing, and expression.
 4. Preview changes in real time via the neural vocoder.
 5. Export the edited audio or MIDI.
+
+### Guiding a take with a reference vocal
+
+Drag audio files onto the editor (standalone, or the plug-in in a non-ARA host
+such as FL Studio). While dragging, the window splits into two targets:
+
+- **Reference**: the isolated vocal to match. It is assumed to start at song
+  time 0:00.
+- **Take**: your recording. In the plug-in it is placed at song time 0:00 and
+  replaces any captured take; capture by playback still works too.
+
+Once both are loaded, the reference pitch is drawn in amber over the take,
+aligned to the take's timing and shifted by whole octaves to the octave you
+sang in. A take may cover only part of the reference, such as one verse. The
+reference is kept when you load another take and is saved with the project
+(and with the host project in the plug-in).
 
 ### Plugin modes
 

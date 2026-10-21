@@ -100,9 +100,16 @@ public:
   void requestPluginProjectRender(const Project &project,
                                   PitchNetAudioModification* target = nullptr);
   void updateProjectStateFromEditor(const Project &project);
+  /** Analyzes captured audio and merges it into the project at its song
+      position, or replaces the project's take with it when replaceExisting.
+      The project's reference vocal is kept and re-aligned to the result. */
   void requestCapturedAudioAnalysis(const juce::AudioBuffer<float> &buffer,
                                     double sampleRate,
-                                    double timelineOffsetSeconds);
+                                    double timelineOffsetSeconds,
+                                    bool replaceExisting = false);
+  /** Non-ARA: analyzes an audio file as the take, placed at song time 0 and
+      replacing any captured take. False if the file cannot be read. */
+  bool analyzeTakeFile(const juce::File &file);
   /** Same archive written straight into a caller-owned stream, so the
       plug-in state path emits it once instead of staging a second full copy. */
   bool serializePersistentProjectState(juce::OutputStream &out,

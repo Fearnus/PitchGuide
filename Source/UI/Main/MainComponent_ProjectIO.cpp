@@ -352,6 +352,9 @@ void MainComponent::loadAudioFile(const juce::File &file) {
     loadingMessage = TR("progress.loading_audio");
   }
   toolbar.hideProgress();
+  // A new take keeps the reference it is meant to be guided towards.
+  auto keptReference =
+      getProject() != nullptr ? getProject()->getReference() : ReferenceTrack{};
   clearProjectForNewLoad();
   showAnalysisProgress(0.0);
 
@@ -370,7 +373,7 @@ void MainComponent::loadAudioFile(const juce::File &file) {
         const juce::ScopedLock sl(safeThis->loadingMessageLock);
         safeThis->loadingMessage = msg;
       },
-      [safeThis](const juce::AudioBuffer<float> &original) {
+      [safeThis, keptReference](const juce::AudioBuffer<float> &original) {
         if (safeThis == nullptr)
           return;
 
@@ -381,6 +384,10 @@ void MainComponent::loadAudioFile(const juce::File &file) {
         auto *project = safeThis->getProject();
         if (!project)
           return;
+        if (keptReference.isLoaded()) {
+          project->getReference() = keptReference;
+          project->getReference().alignTo(project->getAudioData());
+        }
         if (!safeThis->isPluginMode())
           project->setTimelineDisplayMode(TimelineDisplayMode::Time);
 

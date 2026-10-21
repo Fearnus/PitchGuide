@@ -567,6 +567,7 @@ void PianoRollComponent::paint(juce::Graphics &g)
     drawNotes(g, NoteRenderPass::Body);
     drawNotes(g, NoteRenderPass::HoverShadow);
     drawNotes(g, NoteRenderPass::HoveredBody);
+    drawReferenceCurve(g);
     drawPitchCurves(g);
     if (currentHandler_)
       currentHandler_->draw(g);
@@ -1523,6 +1524,55 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
     params.midiCurveOverride = &pitchDrawingHandler_->getPreviewMidiCurve();
   }
   pitchCurveRenderer->draw(g, params);
+}
+
+// The reference vocal's pitch, aligned to the take's timing: drawn over the
+// note blocks and under the take's own pitch curve, so the two can be compared.
+void PianoRollComponent::drawReferenceCurve(juce::Graphics &g)
+{
+  if (project == nullptr || !project->getReference().isAligned() ||
+      pixelsPerSecond <= 0.0f)
+    return;
+  const auto &reference = project->getReference();
+
+  // Only frames that can reach the viewport; coordinates are world space.
+  const double framesPerPixel =
+      static_cast<double>(SAMPLE_RATE) / HOP_SIZE / pixelsPerSecond;
+  const int firstFrame =
+      std::max(0, static_cast<int>(std::floor(scrollX * framesPerPixel)) - 1);
+  const int endFrame = std::min(
+      static_cast<int>(reference.referenceFrameForTakeFrame.size()),
+      static_cast<int>(std::ceil((scrollX + getWidth()) * framesPerPixel)) + 1);
+
+  g.setColour(APP_COLOR_REFERENCE_CURVE.withAlpha(0.8f));
+  juce::Path path;
+  bool started = false;
+  auto strokePath = [&]()
+  {
+    if (started)
+      g.strokePath(path, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved,
+                                              juce::PathStrokeType::rounded));
+    path.clear();
+    started = false;
+  };
+
+  for (int frame = firstFrame; frame < endFrame; ++frame)
+  {
+    const float midi = reference.targetMidiAt(frame);
+    if (midi <= 0.0f)
+    {
+      strokePath();
+      continue;
+    }
+    const float x = timeToX(framesToSeconds(frame));
+    const float y = midiToY(midi) + pixelsPerSemitone * 0.5f;
+    if (started)
+      path.lineTo(x, y);
+    else
+      path.startNewSubPath(x, y);
+    started = true;
+  }
+  strokePath();
 }
 
 void PianoRollComponent::drawPianoKeys(juce::Graphics &g)

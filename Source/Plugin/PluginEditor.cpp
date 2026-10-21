@@ -3,6 +3,7 @@
 #include "../Models/Project.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
+#include "../Utils/Localization.h"
 #include "../Undo/ContextUndoAction.h"
 #include "../Undo/PitchUndoManager.h"
 
@@ -324,6 +325,7 @@ void PitchNetAudioProcessorEditor::setupARAMode() {
 
   mainView->setRecordControlVisible(false);
   mainView->setOnRecordArmChanged(nullptr);
+  mainView->setOnTakeFileDropped(nullptr);
   // ARA gives us a host link: transport controls and cycle editing are live.
   mainView->setHostTransportControlAvailable(true);
 
@@ -1456,6 +1458,11 @@ void PitchNetAudioProcessorEditor::setupNonARAMode() {
       audioProcessor.startCapture();
     else
       audioProcessor.stopCapture();
+  });
+  mainView->setOnTakeFileDropped([this](const juce::File &file) {
+    if (!audioProcessor.analyzeTakeFile(file))
+      mainView->setStatusMessage(TR("take.read_failed").replace(
+          "%1", file.getFileName()));
   });
   mainView->setOnRequestBackendRender([this](const Project &project) {
     audioProcessor.requestPluginProjectRender(project);

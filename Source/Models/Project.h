@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "Note.h"
+#include "ReferenceTrack.h"
 #include <vector>
 #include <memory>
 #include <utility>
@@ -176,6 +177,10 @@ public:
     AudioData &getAudioData() { return audioData; }
     const AudioData &getAudioData() const { return audioData; }
 
+    // Reference vocal the take is guided towards (empty when none is loaded)
+    ReferenceTrack &getReference() { return reference; }
+    const ReferenceTrack &getReference() const { return reference; }
+
     // Notes
     std::vector<Note> &getNotes() { return notes; }
     const std::vector<Note> &getNotes() const { return notes; }
@@ -309,6 +314,7 @@ private:
     juce::String audioSha256;
 
     AudioData audioData;
+    ReferenceTrack reference;
     std::vector<Note> notes;
 
     float globalPitchOffset = 0.0f;
