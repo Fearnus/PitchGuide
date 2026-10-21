@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full release pipeline for Linux: configure + build PitchNet (Release), then
+# Full release pipeline for Linux: configure + build PitchGuide (Release), then
 # package the standalone app, VST3 plugin, and models into a self-extracting
 # installer (.run) via build_installer.sh.
 #

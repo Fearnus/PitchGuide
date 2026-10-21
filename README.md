@@ -1,19 +1,49 @@
 <div align="center">
-  <h1>PitchNet</h1>
-  <p>A lightweight pitch editor built with JUCE, featuring neural pitch detection and vocoder resynthesis for real-time preview.</p>
+  <h1>PitchGuide</h1>
+  <p>A JUCE vocal pitch editor that is being extended to correct a new take toward a reference vocal and to show live pitch while you sing.</p>
 </div>
 
-![PitchNet editor screenshot](docs/images/pitchnet-editor.png)
+![PitchGuide editor screenshot](docs/images/pitchguide-editor.png)
 
 ## Origin, attribution, and license
 
-PitchNet is a modified derivative of [HachiTune](https://github.com/KCKT0112/HachiTune), an open-source project developed by the HachiTune contributors. It includes substantial code derived from HachiTune, along with subsequent changes by Session Loops and other contributors. This repository does not claim sole authorship of the derived work.
+PitchGuide is developed by Fearnus. It is a modified derivative of
+[PitchNet](https://github.com/SessionLoops/PitchNet) by Session Loops, which is
+itself a modified derivative of [HachiTune](https://github.com/KCKT0112/HachiTune)
+by the HachiTune contributors. PitchGuide includes substantial code from both
+projects and keeps their full commit history. This repository does not claim
+sole authorship of the derived work: copyright in the inherited code remains
+with the HachiTune contributors, Session Loops, and the other contributors to
+those projects.
 
-PitchNet is distributed under the [GNU Affero General Public License, version 3](LICENSE) (AGPLv3). The complete license text is included in this repository. When conveying copies or modified versions, preserve all applicable copyright, license, and attribution notices, and make the corresponding source available as required by the AGPLv3.
+PitchGuide is an independent project. It is not affiliated with or endorsed by
+Session Loops or the HachiTune contributors, and it does not track upstream
+PitchNet changes.
+
+PitchGuide is distributed under the [GNU Affero General Public License, version 3](LICENSE)
+(AGPLv3), the same license as PitchNet. The complete license text is included in
+this repository. When conveying copies or modified versions, preserve all
+applicable copyright, license, and attribution notices, and make the
+corresponding source available as required by the AGPLv3. Third-party
+components and model assets are listed in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
 ## Overview
 
-PitchNet is a standalone app and audio plugin for editing vocal pitch in a piano roll. It analyzes audio using neural pitch detectors (RMVPE / FCPE), segments notes with the GAME model, and resynthesizes edits in real time through a neural vocoder (PC-NSF-HiFiGAN). Edits are previewed instantly with minimal latency and exported as audio or MIDI. The plugin supports both ARA hosts and a non-ARA capture workflow.
+PitchGuide is a standalone app and audio plugin for editing vocal pitch in a
+piano roll. It analyzes audio using neural pitch detectors (FCPE, optionally
+RMVPE), segments notes with the GAME model, and resynthesizes edits in real time
+through a neural vocoder (PC-NSF-HiFiGAN). Edits are previewed instantly with
+minimal latency and exported as audio or MIDI. The plugin supports both ARA
+hosts and a non-ARA capture workflow.
+
+### Roadmap
+
+PitchGuide is being reworked step by step from the PitchNet codebase:
+
+1. Rebrand and working CI.
+2. Time-align a new take to an isolated reference vocal (DTW prototype).
+3. "Match reference" pitch correction in the editor.
+4. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
 
 ## Features
 
@@ -28,10 +58,18 @@ PitchNet is a standalone app and audio plugin for editing vocal pitch in a piano
 - Export audio (WAV) and MIDI
 - Standalone app plus VST3/AU plugins (AAX optional, ARA supported)
 - GPU acceleration via CUDA or DirectML on Windows; CoreML on macOS
-- Multi-language UI (English, Japanese, Chinese Simplified, Chinese Traditional)
+- Multi-language UI (English, Japanese, Chinese Simplified, Chinese Traditional, Korean, Spanish)
 
 ## Download
-To [Download PitchNet](https://sessionloops.com/pitchnet#downloads)
+
+Builds are published on the
+[GitHub releases page](https://github.com/Fearnus/PitchGuide/releases). Every
+push also produces Windows and Linux builds as workflow artifacts under
+[Actions](https://github.com/Fearnus/PitchGuide/actions).
+
+On Windows, either run the installer, or copy the portable
+`PitchGuide.vst3` folder (it carries its own models) into
+`C:\Program Files\Common Files\VST3` and rescan plugins in your DAW.
 
 ## Requirements
 
@@ -49,14 +87,16 @@ To [Download PitchNet](https://sessionloops.com/pitchnet#downloads)
 
 ## Models and Assets
 
-The build expects required model files in `Resources/models` and will fail if any are missing:
+The build expects these model files in `Resources/models` and fails if any are missing:
 
-- `pc_nsf_hifigan.onnx` (vocoder)
-- `rmvpe.onnx` (pitch detection)
-- `fcpe.onnx` (pitch detection, optional)
-- `GAME/` (note segmentation: `encoder.onnx`, `estimator.onnx`, `segmenter.onnx`, `dur2bd.onnx`, `bd2dur.onnx`, `config.json`)
+- `pc_nsf_hifigan.onnx` (vocoder; macOS builds need `pc_nsf_hifigan.mlmodelc` instead, which is not in this repository)
+- `fcpe.onnx` (pitch detection)
+- `GAME/` (note segmentation: `encoder.onnx`, `estimator.onnx`, `segmenter.onnx`, `dur2bd.onnx`, `bd2dur.onnx`, `config.json`), downloaded automatically during CMake configure if missing
 - `cent_table.bin`
 - `mel_filterbank.bin`
+
+`rmvpe.onnx` is optional and is not shipped: it is used only if present (see
+the RMVPE note in `THIRD_PARTY_NOTICES.txt`).
 
 Other runtime assets live in `Resources/lang` and `Resources/fonts`.
 
@@ -80,6 +120,22 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
+### Tests
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DPITCHNET_BUILD_TESTS=ON
+cmake --build build --config Release
+ctest --test-dir build --output-on-failure
+```
+
+On Linux, install JUCE's build dependencies first (Ubuntu package names):
+
+```bash
+sudo apt-get install ninja-build libasound2-dev libjack-jackd2-dev \
+  libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+  libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev
+```
+
 ### Optional flags
 
 - `-DUSE_CUDA=ON` Enable CUDA execution provider (Windows)
@@ -88,6 +144,11 @@ cmake --build build --config Release
 - `-DUSE_BUNDLED_CUDA_RUNTIME=ON` Bundle CUDA redistributables (Windows)
 - `-DUSE_BUNDLED_DIRECTML_RUNTIME=ON` Bundle DirectML runtime (Windows)
 - `-DONNXRUNTIME_VERSION=1.19.2` Override ONNX Runtime version
+- `-DPITCHNET_DEV_BUILD=ON` Side-by-side development identity ("PitchGuide Dev", plugin code `Pgd0`, bundle ID `com.fearnus.pitchguide.dev`)
+- `-DPITCHNET_BUILD_TESTS=ON` Build the unit tests in `tests/`
+
+The `PITCHNET_` prefix on CMake options and internal targets is inherited from
+PitchNet and kept so existing build commands keep working.
 
 Notes:
 - CUDA and DirectML cannot be enabled at the same time.
@@ -115,7 +176,7 @@ Notes:
 ## Project Structure
 
 ```
-PitchNet/
+PitchGuide/
   Source/
     Audio/        # Audio engine, pitch detection, synthesis, vocoder
     Models/       # Project, note, and audio data models
@@ -137,10 +198,15 @@ PitchNet/
 
 ## Acknowledgements
 
+PitchGuide builds on the work of the [HachiTune](https://github.com/KCKT0112/HachiTune)
+contributors and of [Session Loops](https://github.com/SessionLoops/PitchNet),
+whose PitchNet is the codebase this project continues from.
+
 This project uses the following models from the open-source community:
 
 - [GAME](https://github.com/openvpi/GAME) — Note segmentation model by [OpenVPI](https://github.com/openvpi)
 - [PC-NSF-HiFiGAN](https://github.com/openvpi/vocoders) — Neural vocoder by [OpenVPI](https://github.com/openvpi)
+- [FCPE](https://github.com/CNChTu/FCPE) — Pitch estimation model by [CNChTu](https://github.com/CNChTu)
 - [RMVPE](https://github.com/yxlllc/RMVPE) — Robust pitch estimation model by [yxlllc](https://github.com/yxlllc)
 
 Audio sample-rate conversion uses

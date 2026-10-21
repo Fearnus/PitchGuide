@@ -7,8 +7,8 @@
   "canvas.timing": "タイミング",
   "category.edit_mode": "編集モード",
   "category.transport": "トランスポート",
-  "command.about": "PitchNet について",
-  "command.about.desp": "PitchNet とサードパーティ表記について",
+  "command.about": "PitchGuide について",
+  "command.about.desp": "PitchGuide とサードパーティ表記について",
   "command.pitch_drawing_tool": "ピッチ描画ツール",
   "command.pitch_drawing_tool.desp": "ピッチ描画ツールを有効にします",
   "command.export_audio": "オーディオを書き出し...",
@@ -269,7 +269,7 @@
   "tooltip.region_view_track": "トラックモード：トラック上のすべてのクリップを表示中。クリックすると選択したクリップのソースのみを表示します。",
   "update.ask_later": "後で確認",
   "update.download_now": "今すぐダウンロード",
-  "update.message": "PitchNet の新しいバージョンがあります。ダウンロードしますか？",
+  "update.message": "PitchGuide の新しいバージョンがあります。ダウンロードしますか？",
   "update.skip_version": "このバージョンをスキップ",
   "update.title": "アップデートがあります"
 }

@@ -1,10 +1,13 @@
-﻿; PitchNet Windows installer.
+﻿; PitchGuide Windows installer.
 
-#define MyAppName "PitchNet"
+#define MyAppName "PitchGuide"
 #define MyAppVersion "0.7.2"
-#define MyAppPublisher "Session Loops"
-#define MyAppURL "https://www.sessionloops.com/"
-#define MyAppExeName "PitchNet.exe"
+#define MyAppPublisher "Fearnus"
+#define MyAppURL "https://github.com/Fearnus/PitchGuide"
+#define MyAppExeName "PitchGuide.exe"
+
+; AAX is only built when an AAX SDK is available, so only offer it if it was.
+#define HaveAAX DirExists(AddBackslash(SourcePath) + "..\..\build\PitchGuidePlugin_artefacts\Release\AAX\PitchGuide.aaxplugin")
 
 [Setup]
 ; This script lives in packaging\windows. SourceDir points back at the repository
@@ -12,7 +15,7 @@
 ; resolved from the repo root, exactly as when the script sat there.
 SourceDir=..\..
 OutputDir=Output
-AppId={{D6C85D0D-3B96-4B45-B8B5-3E25B18D24F0}
+AppId={{E5ABEAB8-EE01-48F0-93C3-68CCA4B2E623}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -22,12 +25,13 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={code:getPreProgramPath}\{#MyAppName}
 DefaultGroupName={#MyAppPublisher}
 DisableProgramGroupPage=yes
-OutputBaseFilename=PitchNet_Installer
+OutputBaseFilename=PitchGuide_Installer
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=build\PitchNet_artefacts\JuceLibraryCode\icon.ico
+SetupIconFile=build\PitchGuide_artefacts\JuceLibraryCode\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+LicenseFile=LICENSE
 InfoBeforeFile=THIRD_PARTY_NOTICES.txt
 
 [Languages]
@@ -39,13 +43,17 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 [Components]
 Name: "main"; Description: "Standalone application and runtime resources"; Types: custom; Flags: fixed
 Name: "vst3"; Description: "VST3"; Types: custom
+#if HaveAAX
 Name: "aax"; Description: "AAX"; Types: custom
+#endif
 
 [Files]
-Source: "build\PitchNet_artefacts\Release\PitchNet.exe"; DestDir: "{app}"; Components: main; Flags: ignoreversion
-Source: "build\PitchNet_artefacts\Release\onnxruntime.dll"; DestDir: "{app}"; Components: main; Flags: ignoreversion
-Source: "build\PitchNetPlugin_artefacts\Release\VST3\PitchNet.vst3\*"; DestDir: "{code:getPreVST64Path}"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "build\PitchNetPlugin_artefacts\Release\AAX\PitchNet.aaxplugin\*"; DestDir: "{code:getPreAAXPath}"; Components: aax; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build\PitchGuide_artefacts\Release\PitchGuide.exe"; DestDir: "{app}"; Components: main; Flags: ignoreversion
+Source: "build\PitchGuide_artefacts\Release\onnxruntime.dll"; DestDir: "{app}"; Components: main; Flags: ignoreversion
+Source: "build\PitchGuidePlugin_artefacts\Release\VST3\PitchGuide.vst3\*"; DestDir: "{code:getPreVST64Path}"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+#if HaveAAX
+Source: "build\PitchGuidePlugin_artefacts\Release\AAX\PitchGuide.aaxplugin\*"; DestDir: "{code:getPreAAXPath}"; Components: aax; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 Source: "Resources\models\*"; DestDir: "{commonappdata}\{#MyAppPublisher}\{#MyAppName}\models"; Components: main; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "Resources\fonts\Montserrat-Medium.ttf"; DestDir: "{commonfonts}"; FontInstall: "Montserrat-Medium"; Components: main; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "Resources\fonts\Montserrat-Regular.ttf"; DestDir: "{commonfonts}"; FontInstall: "Montserrat-Regular"; Components: main; Flags: onlyifdoesntexist uninsneveruninstall

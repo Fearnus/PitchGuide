@@ -54,7 +54,7 @@
 									<key>GID</key>
 									<integer>80</integer>
 									<key>PATH</key>
-									<string>../../build-xcode/PitchNet_artefacts/Release/PitchNet.app</string>
+									<string>../../build-xcode/PitchGuide_artefacts/Release/PitchGuide.app</string>
 									<key>PATH_TYPE</key>
 									<integer>1</integer>
 									<key>PERMISSIONS</key>
@@ -110,7 +110,7 @@
 													<key>GID</key>
 													<integer>80</integer>
 													<key>PATH</key>
-													<string>PitchNet</string>
+													<string>PitchGuide</string>
 													<key>PATH_TYPE</key>
 													<integer>2</integer>
 													<key>PERMISSIONS</key>
@@ -124,7 +124,7 @@
 											<key>GID</key>
 											<integer>80</integer>
 											<key>PATH</key>
-											<string>Session Loops</string>
+											<string>Fearnus</string>
 											<key>PATH_TYPE</key>
 											<integer>2</integer>
 											<key>PERMISSIONS</key>
@@ -924,7 +924,7 @@
 				<key>FOLLOW_SYMBOLIC_LINKS</key>
 				<false/>
 				<key>IDENTIFIER</key>
-				<string>com.SessionLoops.pkg.PitchNet.Core</string>
+				<string>com.fearnus.pkg.pitchguide.Core</string>
 				<key>LOCATION</key>
 				<integer>0</integer>
 				<key>NAME</key>
@@ -1055,7 +1055,7 @@
 															<key>GID</key>
 															<integer>0</integer>
 															<key>PATH</key>
-															<string>../../build-xcode/PitchNetPlugin_artefacts/Release/AU/PitchNet.component</string>
+															<string>../../build-xcode/PitchGuidePlugin_artefacts/Release/AU/PitchGuide.component</string>
 															<key>PATH_TYPE</key>
 															<integer>1</integer>
 															<key>PERMISSIONS</key>
@@ -1802,7 +1802,7 @@
 				<key>FOLLOW_SYMBOLIC_LINKS</key>
 				<false/>
 				<key>IDENTIFIER</key>
-				<string>com.SessionLoops.pkg.PitchNet.AU</string>
+				<string>com.fearnus.pkg.pitchguide.AU</string>
 				<key>LOCATION</key>
 				<integer>0</integer>
 				<key>NAME</key>
@@ -1933,7 +1933,7 @@
 															<key>GID</key>
 															<integer>0</integer>
 															<key>PATH</key>
-															<string>../../build-xcode/PitchNetPlugin_artefacts/Release/VST3/PitchNet.vst3</string>
+															<string>../../build-xcode/PitchGuidePlugin_artefacts/Release/VST3/PitchGuide.vst3</string>
 															<key>PATH_TYPE</key>
 															<integer>1</integer>
 															<key>PERMISSIONS</key>
@@ -2680,7 +2680,7 @@
 				<key>FOLLOW_SYMBOLIC_LINKS</key>
 				<false/>
 				<key>IDENTIFIER</key>
-				<string>com.SessionLoops.pkg.PitchNet.VST3</string>
+				<string>com.fearnus.pkg.pitchguide.VST3</string>
 				<key>LOCATION</key>
 				<integer>0</integer>
 				<key>NAME</key>
@@ -2765,7 +2765,7 @@
 																	<key>GID</key>
 																	<integer>0</integer>
 																	<key>PATH</key>
-																	<string>../../build-xcode/PitchNetPlugin_artefacts/Release/AAX/PitchNet.aaxplugin</string>
+																	<string>../../build-xcode/PitchGuidePlugin_artefacts/Release/AAX/PitchGuide.aaxplugin</string>
 																	<key>PATH_TYPE</key>
 																	<integer>1</integer>
 																	<key>PERMISSIONS</key>
@@ -3234,7 +3234,7 @@
 				<key>FOLLOW_SYMBOLIC_LINKS</key>
 				<false/>
 				<key>IDENTIFIER</key>
-				<string>com.SessionLoops.pkg.PitchNet.AAX</string>
+				<string>com.fearnus.pkg.pitchguide.AAX</string>
 				<key>LOCATION</key>
 				<integer>0</integer>
 				<key>NAME</key>
@@ -3488,7 +3488,7 @@
 						<key>LANGUAGE</key>
 						<string>English</string>
 						<key>VALUE</key>
-						<string>PitchNet</string>
+						<string>PitchGuide</string>
 					</dict>
 				</array>
 			</dict>
@@ -3690,7 +3690,7 @@
 				</dict>
 			</array>
 			<key>NAME</key>
-			<string>PitchNet</string>
+			<string>PitchGuide</string>
 			<key>PAYLOAD_ONLY</key>
 			<false/>
 			<key>TREAT_MISSING_PRESENTATION_DOCUMENTS_AS_WARNING</key>

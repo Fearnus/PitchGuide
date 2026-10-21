@@ -1,19 +1,26 @@
-PitchNet 0.7.2
-Copyright (c) 2026 Session Loops and contributors.
+PitchGuide 0.7.2
+Copyright (c) 2026 Fearnus.
 
-PitchNet is a modified derivative of HachiTune by the HachiTune contributors.
-PitchNet is distributed under the GNU Affero General Public License, version 3.
+PitchGuide is a modified derivative of PitchNet by Session Loops, which is
+itself a modified derivative of HachiTune by the HachiTune contributors
+(https://github.com/KCKT0112/HachiTune). PitchGuide is not affiliated with or
+endorsed by Session Loops or the HachiTune contributors.
+
+PitchNet: Copyright (c) 2026 Session Loops and contributors.
+https://github.com/SessionLoops/PitchNet
+
+PitchGuide is distributed under the GNU Affero General Public License, version 3.
 The complete AGPLv3 text is provided in the installer License page.
 
 Corresponding source for this release is available at:
-https://github.com/SessionLoops/PitchNet
+https://github.com/Fearnus/PitchGuide
 
 Third-party components
 ========================
 
 JUCE Framework
 Copyright (c) Raw Material Software Limited.
-PitchNet uses JUCE under the GNU Affero General Public License, version 3.
+PitchGuide uses JUCE under the GNU Affero General Public License, version 3.
 The applicable AGPLv3 text is provided in the installer License page.
 
 r8brain-free-src

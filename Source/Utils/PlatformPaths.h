@@ -7,18 +7,18 @@
  *
  * macOS:
  *   - Models: /Library/Application Support/<company>/<app>/models/
- *   - Logs: ~/Library/Logs/PitchNet/
- *   - Config: ~/Library/Application Support/PitchNet/
+ *   - Logs: ~/Library/Logs/PitchGuide/
+ *   - Config: ~/Library/Application Support/PitchGuide/
  *
  * Windows:
  *   - Models: %PROGRAMDATA%/<company>/<app>/models/
- *   - Logs: %APPDATA%/PitchNet/Logs/
- *   - Config: %APPDATA%/PitchNet/
+ *   - Logs: %APPDATA%/PitchGuide/Logs/
+ *   - Config: %APPDATA%/PitchGuide/
  *
  * Linux:
  *   - Models: <exe_dir>/models/
- *   - Logs: ~/.config/PitchNet/logs/
- *   - Config: ~/.config/PitchNet/
+ *   - Logs: ~/.config/PitchGuide/logs/
+ *   - Config: ~/.config/PitchGuide/
  */
 namespace PlatformPaths
 {
@@ -50,8 +50,8 @@ namespace PlatformPaths
 #if JUCE_MAC
             .getChildFile("Application Support")
 #endif
-            .getChildFile("Session Loops")
-            .getChildFile("PitchNet");
+            .getChildFile("Fearnus")
+            .getChildFile("PitchGuide");
 #endif
     }
 
@@ -213,17 +213,17 @@ namespace PlatformPaths
     inline juce::File getLogsDirectory()
     {
 #if JUCE_MAC
-        // macOS: ~/Library/Logs/PitchNet/
+        // macOS: ~/Library/Logs/PitchGuide/
         return juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-            .getChildFile("Library/Logs/PitchNet");
+            .getChildFile("Library/Logs/PitchGuide");
 #elif JUCE_WINDOWS
-        // Windows: %APPDATA%/PitchNet/Logs/
+        // Windows: %APPDATA%/PitchGuide/Logs/
         return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("PitchNet/Logs");
+            .getChildFile("PitchGuide/Logs");
 #else
-        // Linux: ~/.config/PitchNet/logs/
+        // Linux: ~/.config/PitchGuide/logs/
         return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("PitchNet/logs");
+            .getChildFile("PitchGuide/logs");
 #endif
     }
 
@@ -231,7 +231,7 @@ namespace PlatformPaths
     {
         // All platforms use userApplicationDataDirectory
         return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("PitchNet");
+            .getChildFile("PitchGuide");
     }
 
     inline juce::File getLogFile(const juce::String &name)
