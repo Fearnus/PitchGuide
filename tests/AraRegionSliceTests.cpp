@@ -1,6 +1,6 @@
 #include "../Source/Models/ProjectRegionSlice.h"
 #include "../Source/Models/ProjectSerializer.h"
-#include <cassert>
+#include "TestAssert.h"
 #include <iostream>
 
 int main() {
@@ -39,55 +39,55 @@ int main() {
   const double cut = (10.0 * HOP_SIZE + 0.25) / SAMPLE_RATE;
   clipProjectToPlaybackRange(left, 0.0, cut);
   clipProjectToPlaybackRange(right, cut, 20.0 * HOP_SIZE / SAMPLE_RATE);
-  assert(left.getNotes().size() == 2 && right.getNotes().size() == 2);
+  CHECK(left.getNotes().size() == 2 && right.getNotes().size() == 2);
   const auto &l = *left.getNoteAtFrame(5), &r = *right.getNoteAtFrame(11);
-  assert(l.getStartFrame() == 4 && l.getEndFrame() == 10);
-  assert(r.getStartFrame() == 10 && r.getEndFrame() == 16);
-  assert(l.getSrcEndFrame() == r.getSrcStartFrame());
-  assert(l.getSrcStartFrame() == 2 && r.getSrcEndFrame() == 20);
-  assert(l.getDeltaPitch().size() == 6 && r.getDeltaPitch().size() == 6);
-  assert(l.getDeltaPitch().back() == 5 && r.getDeltaPitch().front() == 6);
+  CHECK(l.getStartFrame() == 4 && l.getEndFrame() == 10);
+  CHECK(r.getStartFrame() == 10 && r.getEndFrame() == 16);
+  CHECK(l.getSrcEndFrame() == r.getSrcStartFrame());
+  CHECK(l.getSrcStartFrame() == 2 && r.getSrcEndFrame() == 20);
+  CHECK(l.getDeltaPitch().size() == 6 && r.getDeltaPitch().size() == 6);
+  CHECK(l.getDeltaPitch().back() == 5 && r.getDeltaPitch().front() == 6);
   for (const auto *part : {&l, &r}) {
-    assert(part->getMidiNote() == 67 && part->getPitchOffset() == 2);
-    assert(part->getVolumeDb() == -3 && part->getLyric() == "word");
-    assert(part->getPhoneme() == "w" && part->getVibrato() == 0.5f);
-    assert(part->getTiltLeft() == 1.5f && part->hasRenderedEdit());
-    assert(part->getOriginalDeltaPitch() == part->getDeltaPitch());
-    assert(part->getBakedDeltaPitch() == part->getDeltaPitch());
-    assert(part->getF0Values() == part->getDeltaPitch());
+    CHECK(part->getMidiNote() == 67 && part->getPitchOffset() == 2);
+    CHECK(part->getVolumeDb() == -3 && part->getLyric() == "word");
+    CHECK(part->getPhoneme() == "w" && part->getVibrato() == 0.5f);
+    CHECK(part->getTiltLeft() == 1.5f && part->hasRenderedEdit());
+    CHECK(part->getOriginalDeltaPitch() == part->getDeltaPitch());
+    CHECK(part->getBakedDeltaPitch() == part->getDeltaPitch());
+    CHECK(part->getF0Values() == part->getDeltaPitch());
   }
-  assert(left.getAudioData().waveform.getNumSamples() == 10 * HOP_SIZE);
-  assert(right.getAudioData().waveform.getSample(0, 10 * HOP_SIZE) == 10 * HOP_SIZE);
-  assert(right.getAudioData().waveform.getSample(0, 0) == 0);
-  assert(right.getAudioData().f0 == audio.f0);
-  assert(right.getAudioData().melSpectrogram == audio.melSpectrogram);
-  assert(right.getPitchCenter() == 65);
-  assert(original.getNoteAtFrame(5)->getEndFrame() == 16);
-  assert(original.getAudioData().waveform.getNumSamples() == 20 * HOP_SIZE);
+  CHECK(left.getAudioData().waveform.getNumSamples() == 10 * HOP_SIZE);
+  CHECK(right.getAudioData().waveform.getSample(0, 10 * HOP_SIZE) == 10 * HOP_SIZE);
+  CHECK(right.getAudioData().waveform.getSample(0, 0) == 0);
+  CHECK(right.getAudioData().f0 == audio.f0);
+  CHECK(right.getAudioData().melSpectrogram == audio.melSpectrogram);
+  CHECK(right.getPitchCenter() == 65);
+  CHECK(original.getNoteAtFrame(5)->getEndFrame() == 16);
+  CHECK(original.getAudioData().waveform.getNumSamples() == 20 * HOP_SIZE);
   // Editor-closed restore uses archives without waveforms/mel. Both halves,
   // especially the surviving left identity, must retain their new bounds and
   // edits independently of hydration from the shorter host region.
   for (const auto *part : {&left, &right}) {
     juce::MemoryBlock archive;
-    assert(ProjectSerializer::toBinaryArchive(*part, archive,
+    CHECK(ProjectSerializer::toBinaryArchive(*part, archive,
         ProjectSerializer::BinaryArchiveMode::hostBackedARA));
     Project reopened;
-    assert(ProjectSerializer::fromBinaryArchive(reopened, archive.getData(), archive.getSize()));
-    assert(reopened.getAudioData().waveform.getNumSamples() == 0);
-    assert(reopened.getAudioData().melSpectrogram.empty());
-    assert(reopened.getAudioData().playbackRegionRanges.size() == 1);
+    CHECK(ProjectSerializer::fromBinaryArchive(reopened, archive.getData(), archive.getSize()));
+    CHECK(reopened.getAudioData().waveform.getNumSamples() == 0);
+    CHECK(reopened.getAudioData().melSpectrogram.empty());
+    CHECK(reopened.getAudioData().playbackRegionRanges.size() == 1);
     const auto actual = reopened.getAudioData().playbackRegionRanges.front();
     const auto expected = part->getAudioData().playbackRegionRanges.front();
     // Timeline metadata is serialized through JSON decimal numbers.
-    assert(std::abs(actual.first - expected.first) < 1.0e-8);
-    assert(std::abs(actual.second - expected.second) < 1.0e-8);
-    assert(reopened.getAudioData().f0 == part->getAudioData().f0);
-    assert(reopened.getNotes().size() == part->getNotes().size());
+    CHECK(std::abs(actual.first - expected.first) < 1.0e-8);
+    CHECK(std::abs(actual.second - expected.second) < 1.0e-8);
+    CHECK(reopened.getAudioData().f0 == part->getAudioData().f0);
+    CHECK(reopened.getNotes().size() == part->getNotes().size());
     const auto *restored = reopened.getNoteAtFrame(part == &left ? 5 : 11);
-    assert(restored && restored->getLyric() == "word");
-    assert(restored->getPitchOffset() == 2 && restored->getVolumeDb() == -3);
-    assert(restored->getBakedDeltaPitch() == (part == &left ? l : r).getBakedDeltaPitch());
-    assert(restored->getEndFrame() == (part == &left ? 10 : 16));
+    CHECK(restored && restored->getLyric() == "word");
+    CHECK(restored->getPitchOffset() == 2 && restored->getVolumeDb() == -3);
+    CHECK(restored->getBakedDeltaPitch() == (part == &left ? l : r).getBakedDeltaPitch());
+    CHECK(restored->getEndFrame() == (part == &left ? 10 : 16));
   }
   std::cout << "ARA region slice tests passed\n";
 }

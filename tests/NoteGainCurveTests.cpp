@@ -1,7 +1,6 @@
 #include "../Source/Utils/NoteGainCurve.h"
 #include "../Source/Utils/NoteAmplitude.h"
 #include "TestAssert.h"
-#include <cassert>
 #include <cmath>
 #include <iostream>
 
@@ -42,21 +41,21 @@ int main()
         const float dry = 0.25f * std::sin(i * 0.1f);
         const float original = dry * oldGain[i];
         const float edited = original * (newGain[i] / oldGain[i]);
-        assert(std::abs(edited - dry * newGain[i]) < 1e-6f);
-        assert(std::abs(edited * (oldGain[i] / newGain[i]) - original) < 1e-6f);
+        CHECK(std::abs(edited - dry * newGain[i]) < 1e-6f);
+        CHECK(std::abs(edited * (oldGain[i] / newGain[i]) - original) < 1e-6f);
         if (i < 448 || i >= 2112)
-            assert(oldGain[i] == newGain[i]);
+            CHECK(oldGain[i] == newGain[i]);
     }
     for (size_t i = 0; i < crop.size(); ++i)
-        assert(std::abs(crop[i] - newGain[i + 448]) < 1e-6f);
-    assert(std::abs(oldGain[1000] - 0.001f) < 1e-6f);
-    assert(newGain[512] > 1.0f && newGain[512] < linearGain(6.0f));
+        CHECK(std::abs(crop[i] - newGain[i + 448]) < 1e-6f);
+    CHECK(std::abs(oldGain[1000] - 0.001f) < 1e-6f);
+    CHECK(newGain[512] > 1.0f && newGain[512] < linearGain(6.0f));
     const auto overlap = build({{0, count, 6.0f}, {0, count, -6.0f}}, 0, count, count, hop);
-    for (float gain : overlap) assert(std::abs(gain - 1.0f) < 1e-6f);
-    assert(build({}, 0, 0, 0, hop).empty());
+    for (float gain : overlap) CHECK(std::abs(gain - 1.0f) < 1e-6f);
+    CHECK(build({}, 0, 0, 0, hop).empty());
     const auto shortNote = build({{0, 1, -60.0f}}, 0, 1, 1, hop);
-    assert(shortNote.size() == 1 && std::abs(shortNote[0] - 0.001f) < 1e-6f);
+    CHECK(shortNote.size() == 1 && std::abs(shortNote[0] - 0.001f) < 1e-6f);
     const auto neutral = build({}, 0, count, count, hop);
-    for (float gain : neutral) assert(gain == 1.0f);
+    for (float gain : neutral) CHECK(gain == 1.0f);
     std::cout << "Note gain curve tests passed\n";
 }
