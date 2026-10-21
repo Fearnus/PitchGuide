@@ -144,6 +144,9 @@ sudo apt-get install ninja-build libasound2-dev libjack-jackd2-dev \
 - `-DONNXRUNTIME_VERSION=1.19.2` Override ONNX Runtime version
 - `-DPITCHNET_DEV_BUILD=ON` Side-by-side development identity ("PitchGuide Dev", plugin code `Pgd0`, bundle ID `com.fearnus.pitchguide.dev`)
 - `-DPITCHNET_BUILD_TESTS=ON` Build the unit tests in `tests/`
+- `-DPITCHNET_BUILD_TOOLS=ON` Build the developer tools in `tools/`, e.g.
+  `pitchguide-align <reference> <take> [alignment.csv]`, which aligns a take to
+  a reference vocal and writes the frame map as CSV
 
 The `PITCHNET_` prefix on CMake options and internal targets is inherited from
 PitchNet and kept so existing build commands keep working.
