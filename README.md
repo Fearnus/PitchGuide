@@ -146,7 +146,9 @@ sudo apt-get install ninja-build libasound2-dev libjack-jackd2-dev \
 - `-DPITCHNET_BUILD_TESTS=ON` Build the unit tests in `tests/`
 - `-DPITCHNET_BUILD_TOOLS=ON` Build the developer tools in `tools/`, e.g.
   `pitchguide-align <reference> <take> [alignment.csv]`, which aligns a take to
-  a reference vocal and writes the frame map as CSV
+  a reference vocal and writes the frame map as CSV. Run from the repository
+  root, it also detects pitch in both files, suggests an octave shift, and
+  reports how often the take's pitch matches the aligned reference
 
 The `PITCHNET_` prefix on CMake options and internal targets is inherited from
 PitchNet and kept so existing build commands keep working.
