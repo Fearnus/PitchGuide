@@ -41,7 +41,7 @@ PitchGuide is being reworked step by step from the PitchNet codebase:
 1. Rebrand and working CI (done).
 2. Time-align a new take to an isolated reference vocal (done).
 3. Drop in a reference and a take; show the reference pitch over the take (done).
-4. "Match reference" pitch correction in the editor.
+4. "Match reference" pitch correction in the editor (pitch done; timing next).
 5. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
 
 ## Features
@@ -187,6 +187,21 @@ aligned to the take's timing and shifted by whole octaves to the octave you
 sang in. A take may cover only part of the reference, such as one verse. The
 reference is kept when you load another take and is saved with the project
 (and with the host project in the plug-in).
+
+To correct the take, click the target button in the toolbar or choose
+**Edit > Match Reference...** (Ctrl+M / Cmd+M). It works on the selected notes,
+or on every note when none is selected, and previews as you change:
+
+- **Note pitch** (default 100%): moves each note's centre to the pitch the
+  reference sings over it.
+- **Expression** (default 0%): blends the note's slides and vibrato toward the
+  reference's, around the note's new centre.
+- **Transpose** (-12 to +12 semitones): added on top of the automatic octave
+  shift, for singing the part in another range.
+
+Notes the reference is silent over are left alone. OK keeps the result as one
+undo step; Cancel puts the notes back. **Edit > Remove Reference**
+stops guiding the take.
 
 ### Plugin modes
 

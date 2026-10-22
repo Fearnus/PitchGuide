@@ -92,6 +92,7 @@ public:
     // Left-panel group is ARA only; hidden (and takes no space) otherwise.
     void setLeftPanelAvailable(bool available);
     void setUndoRedoEnabled(bool undoEnabled, bool redoEnabled);
+    void setMatchReferenceEnabled(bool enabled);
     void setProject(Project* project);
     bool isFollowPlayback() const { return followPlayback; }
     bool isLoopEnabled() const { return loopEnabled; }
@@ -119,6 +120,7 @@ public:
     std::function<void(bool)> onToggleRecord;
     std::function<void(bool)> onToggleAudition;
     std::function<void()> onCorrectPitchCenter;
+    std::function<void()> onMatchReference;
     std::function<void(int)> onScaleRootChanged;
     std::function<void(ScaleMode)> onScaleModeChanged;
     std::function<void(std::optional<int>)> onScaleRootPreviewChanged;
@@ -155,6 +157,7 @@ private:
     ToggleButton followButton;
     ScaleSelectionControl scaleSelectionButton;
     Button quantizeButton;
+    Button matchReferenceButton;
     ToggleButton auditionButton;
     Button undoButton;
     Button redoButton;

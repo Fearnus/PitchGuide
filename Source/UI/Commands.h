@@ -44,6 +44,8 @@ namespace CommandIDs
         activateTimingTool  = 0x2045,
         
         // Pitch Tool Commands (0x2050-0x205F)
-        fourierFilter       = 0x2050
+        fourierFilter       = 0x2050,
+        matchReference      = 0x2051,
+        removeReference     = 0x2052
     };
 }

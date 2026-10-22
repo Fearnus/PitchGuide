@@ -21,6 +21,10 @@ public:
   void setProject(Project *project);
   void dismissPitchCenterPopup();
   void showPitchCenterPopup();
+  // Match Reference: pulls the selected notes (all notes if none are
+  // selected) toward the project's reference vocal. Returns false, without
+  // opening anything, when no reference is aligned to the take.
+  bool showMatchReferencePopup();
   std::function<std::vector<TrackPitchMacroTarget>()> getTrackPitchMacroTargets;
   void refreshOverview();
   void repaintOverviewViewport();

@@ -886,6 +886,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   {
     pianoRollView.showPitchCenterPopup();
   };
+  toolbar.onMatchReference = [this] { openMatchReference(); };
   toolbar.setUndoRedoEnabled(undoManager && undoManager->canUndo(),
                              undoManager && undoManager->canRedo());
 
@@ -1372,6 +1373,10 @@ bool MainComponent::isInferenceBusy() const
 
 MainComponent::~MainComponent()
 {
+  // Edit popups are not owned by their parent: cancel any open one now, so its
+  // preview is put back and re-rendered while the editor is still whole.
+  pianoRollView.dismissPitchCenterPopup();
+
   // Finish the network worker before JUCE tears down its networking state.
   stoppingUpdateCheck.store(true);
   if (updateRequest != nullptr)
@@ -1497,6 +1502,14 @@ void MainComponent::mouseDoubleClick(const juce::MouseEvent &e)
 void MainComponent::timerCallback()
 {
   dispatchPendingDragAudition();
+
+  // A reference can be aligned by any of several paths (drop, new take,
+  // restored project); the button just follows the project.
+  {
+    const auto *project = getProject();
+    toolbar.setMatchReferenceEnabled(project != nullptr &&
+                                     project->getReference().isAligned());
+  }
 
   // Handle throttled cursor updates (30Hz max)
   if (hasPendingCursorUpdate.load())
@@ -3161,6 +3174,27 @@ void MainComponent::loadReferenceFile(const juce::File &file)
       });
 }
 
+void MainComponent::openMatchReference()
+{
+  if (!pianoRollView.showMatchReferencePopup())
+    setStatusMessage(TR("reference.none"));
+}
+
+void MainComponent::removeReference()
+{
+  auto *project = getProject();
+  if (project == nullptr || !project->getReference().isLoaded())
+    return;
+  pianoRollView.dismissPitchCenterPopup();
+  referenceJob.reset();
+  project->getReference() = {};
+  project->setModified(true);
+  pianoRoll.repaint();
+  if (onProjectDataChanged)
+    onProjectDataChanged();
+  setStatusMessage(TR("reference.removed"));
+}
+
 void MainComponent::applyReference(ReferenceTrack reference)
 {
   auto *project = getProject();
@@ -3836,6 +3870,8 @@ void MainComponent::getAllCommands(juce::Array<juce::CommandID> &commands)
       CommandIDs::undo,
       CommandIDs::redo,
       CommandIDs::selectAll,
+      CommandIDs::matchReference,
+      CommandIDs::removeReference,
 
       // View commands
       CommandIDs::showSettings,
@@ -3930,6 +3966,19 @@ void MainComponent::getCommandInfo(juce::CommandID commandID,
     result.setInfo(TR("command.select_all"), TR("command.select_all.desp"), TR("menu.edit"), 0);
     result.addDefaultKeypress('a', primaryModifier);
     result.setActive(project != nullptr);
+    break;
+
+  case CommandIDs::matchReference:
+    result.setInfo(TR("command.match_reference"), TR("command.match_reference.desp"),
+                   TR("menu.edit"), 0);
+    result.addDefaultKeypress('m', primaryModifier);
+    result.setActive(project != nullptr && project->getReference().isAligned());
+    break;
+
+  case CommandIDs::removeReference:
+    result.setInfo(TR("command.remove_reference"), TR("command.remove_reference.desp"),
+                   TR("menu.edit"), 0);
+    result.setActive(project != nullptr && project->getReference().isLoaded());
     break;
 
   // View commands
@@ -4084,6 +4133,14 @@ bool MainComponent::perform(const ApplicationCommandTarget::InvocationInfo &info
       project->selectAllNotes();
       pianoRoll.repaint();
     }
+    return true;
+
+  case CommandIDs::matchReference:
+    openMatchReference();
+    return true;
+
+  case CommandIDs::removeReference:
+    removeReference();
     return true;
 
   // View commands
