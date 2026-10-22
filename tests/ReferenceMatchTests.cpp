@@ -1,4 +1,6 @@
 #include "../Source/Models/Project.h"
+#include "../Source/Models/ProjectSerializer.h"
+#include "../Source/Undo/ReferenceMatchAction.h"
 #include "../Source/Utils/Constants.h"
 #include "../Source/Utils/PitchCurveProcessor.h"
 #include "../Source/Utils/ReferenceMatch.h"
@@ -87,7 +89,7 @@ void checkNear(float actual, float expected, float tolerance, const char* what) 
 void movesNotesToTheReference() {
     auto project = makeProject();
     const auto original = ReferenceMatch::capture(allNotes(project));
-    CHECK(ReferenceMatch::apply(project, original, {1.0f, 0.0f, 0.0f}) == 2);
+    CHECK(ReferenceMatch::apply(project, original, {1.0f, 0.0f, 0.0f}).matched == 2);
     const auto& notes = project.getNotes();
     // The median ignores the vibrato.
     checkNear(notes[0].getMidiNote(), 61.3f, 0.05f, "note 1");
@@ -165,12 +167,150 @@ void handlesNoReference() {
     auto project = makeProject();
     project.getReference() = {};
     const auto original = ReferenceMatch::capture(allNotes(project));
-    CHECK(ReferenceMatch::apply(project, original, {1.0f, 1.0f, 0.0f}) == 0);
+    CHECK(ReferenceMatch::apply(project, original, {1.0f, 1.0f, 0.0f}).matched == 0);
     CHECK(project.getNotes()[0].getMidiNote() == 60.0f);
 
     ReferenceTrack reference;
     CHECK(!ReferenceMatch::referencePitchOver(reference, 0, 10, 0.0f));
     CHECK(!ReferenceMatch::referencePitchOver(makeProject().getReference(), 10, 10, 0.0f));
+}
+
+// Matches the way the popup does: from the remembered bases, then confirms.
+ReferenceMatch::Outcome matchAndConfirm(Project& project, const ReferenceMatch::Settings& settings) {
+    const auto bases = ReferenceMatch::bases(project, allNotes(project));
+    const auto outcome = ReferenceMatch::apply(project, bases, settings);
+    ReferenceMatch::remember(project, bases, settings);
+    return outcome;
+}
+
+// A fresh project matched once with `settings`.
+Project matchedOnce(const ReferenceMatch::Settings& settings) {
+    auto project = makeProject();
+    ReferenceMatch::apply(project, ReferenceMatch::capture(allNotes(project)), settings);
+    return project;
+}
+
+void checkSameMatch(const Project& actual, const Project& expected, const char* what) {
+    for (size_t i = 0; i < actual.getNotes().size(); ++i)
+        checkNear(actual.getNotes()[i].getMidiNote(), expected.getNotes()[i].getMidiNote(),
+                  1e-5f, what);
+    for (int frame = 0; frame < kFrames; ++frame)
+        checkNear(curveAt(actual, frame), curveAt(expected, frame), 1e-5f, what);
+}
+
+// Reopening the popup picks up the settings last confirmed, and new settings
+// apply to the notes as they were before matching instead of on top.
+void reopeningAdjustsTheEarlierMatch() {
+    auto project = makeProject();
+    CHECK(matchAndConfirm(project, {0.6f, 0.5f, 2.0f}).changed == 2);
+    const auto& memory = project.getReferenceMatch();
+    CHECK(memory.settings.notePitch == 0.6f);
+    CHECK(memory.settings.expression == 0.5f);
+    CHECK(memory.settings.transpose == 2.0f);
+    CHECK(memory.entries.size() == 2); // the reference is silent over note 3
+    checkSameMatch(project, matchedOnce({0.6f, 0.5f, 2.0f}), "first match");
+
+    // The same settings again change nothing, so nothing is re-rendered.
+    CHECK(matchAndConfirm(project, {0.6f, 0.5f, 2.0f}).changed == 0);
+    checkSameMatch(project, matchedOnce({0.6f, 0.5f, 2.0f}), "same settings");
+
+    const ReferenceMatch::Settings adjustments[] = {
+        {1.0f, 0.0f, 0.0f}, {0.6f, 0.2f, 2.0f}, {0.3f, 1.0f, -12.0f}};
+    for (const auto& settings : adjustments) {
+        matchAndConfirm(project, settings);
+        checkSameMatch(project, matchedOnce(settings), "adjusted match");
+    }
+
+    // At zero the notes are back as sung, and nothing is left to remember
+    // about them.
+    matchAndConfirm(project, {0.0f, 0.0f, 0.0f});
+    checkSameMatch(project, makeProject(), "match removed");
+    CHECK(project.getReferenceMatch().entries.empty());
+}
+
+// A note edited after matching starts again from the edit; the others still
+// start from before matching.
+void editedNotesStartAgain() {
+    auto project = makeProject();
+    matchAndConfirm(project, {1.0f, 0.0f, 0.0f});
+    auto& notes = project.getNotes();
+    notes[0].setMidiNote(59.0f);
+    PitchCurveProcessor::rebuildBaseFromNotes(project);
+
+    const auto bases = ReferenceMatch::bases(project, allNotes(project));
+    CHECK(bases[0].pitch.midiNote == 59.0f);
+    CHECK(bases[1].pitch.midiNote == 62.0f);
+
+    matchAndConfirm(project, {0.5f, 0.0f, 0.0f});
+    checkNear(notes[0].getMidiNote(), 60.15f, 0.05f, "edited note at 50%");
+    checkNear(notes[1].getMidiNote(), 64.4f, 0.05f, "note 2 at 50%");
+}
+
+// Undo and redo restore what is remembered along with the notes, so the next
+// adjustment still starts from before the first match.
+void undoRestoresWhatIsRemembered() {
+    auto project = makeProject();
+    matchAndConfirm(project, {0.5f, 0.0f, 0.0f});
+
+    // A second match, recorded as the popup records it.
+    const auto notes = allNotes(project);
+    const auto opened = ReferenceMatch::capture(notes);
+    const auto bases = ReferenceMatch::bases(project, notes);
+    const ReferenceMatch::Settings settings{1.0f, 0.0f, 0.0f};
+    ReferenceMatch::apply(project, bases, settings);
+    const auto memoryBefore = project.getReferenceMatch();
+    ReferenceMatch::remember(project, bases, settings);
+    ReferenceMatchAction action(&project, opened, ReferenceMatch::capture(notes), memoryBefore,
+                                project.getReferenceMatch());
+
+    action.undo();
+    checkNear(project.getNotes()[0].getMidiNote(), 60.65f, 0.05f, "undone to 50%");
+    CHECK(project.getReferenceMatch().settings.notePitch == 0.5f);
+    CHECK(ReferenceMatch::bases(project, notes)[0].pitch.midiNote == 60.0f);
+
+    action.redo();
+    checkNear(project.getNotes()[0].getMidiNote(), 61.3f, 0.05f, "redone to 100%");
+    CHECK(project.getReferenceMatch().settings.notePitch == 1.0f);
+    CHECK(ReferenceMatch::bases(project, notes)[0].pitch.midiNote == 60.0f);
+}
+
+// Plug-in state (binary archive) and .pitchnet documents (JSON) both keep what
+// is remembered, closely enough that the reloaded notes still count as matched.
+void survivesSaveAndLoad() {
+    auto project = makeProject();
+    matchAndConfirm(project, {0.7f, 0.4f, -1.0f});
+
+    juce::MemoryBlock archive;
+    CHECK(ProjectSerializer::toBinaryArchive(project, archive));
+    Project fromArchive;
+    CHECK(ProjectSerializer::fromBinaryArchive(fromArchive, archive.getData(), archive.getSize()));
+    Project fromJson;
+    CHECK(ProjectSerializer::fromJson(fromJson, ProjectSerializer::toJson(project, false, true)));
+
+    for (auto* restored : {&fromArchive, &fromJson}) {
+        // Loading rebuilds the mel spectrogram (the frame count) from the
+        // take's audio, which this synthetic take does not have.
+        restored->getAudioData().melSpectrogram = project.getAudioData().melSpectrogram;
+        PitchCurveProcessor::rebuildBaseFromNotes(*restored);
+
+        const auto memory = restored->getReferenceMatch();
+        checkNear(memory.settings.notePitch, 0.7f, 1e-6f, "note pitch");
+        checkNear(memory.settings.expression, 0.4f, 1e-6f, "expression");
+        checkNear(memory.settings.transpose, -1.0f, 1e-6f, "transpose");
+        CHECK(memory.entries.size() == 2);
+
+        const auto bases = ReferenceMatch::bases(*restored, allNotes(*restored));
+        checkNear(bases[0].pitch.midiNote, 60.0f, 1e-4f, "base after loading");
+        CHECK(ReferenceMatch::apply(*restored, bases, memory.settings).changed == 0);
+    }
+
+    // Older projects, and projects never matched, open with the defaults.
+    Project plain;
+    juce::MemoryBlock plainArchive;
+    CHECK(ProjectSerializer::toBinaryArchive(makeProject(), plainArchive));
+    CHECK(ProjectSerializer::fromBinaryArchive(plain, plainArchive.getData(), plainArchive.getSize()));
+    CHECK(plain.getReferenceMatch().settings.notePitch == 1.0f);
+    CHECK(plain.getReferenceMatch().entries.empty());
 }
 
 } // namespace
@@ -181,5 +321,9 @@ int main() {
     expressionWorksAroundTheTakesOwnPitch();
     restoresExactly();
     handlesNoReference();
+    reopeningAdjustsTheEarlierMatch();
+    editedNotesStartAgain();
+    undoRestoresWhatIsRemembered();
+    survivesSaveAndLoad();
     std::cout << "Reference match tests passed\n";
 }

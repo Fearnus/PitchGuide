@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "Note.h"
+#include "ReferenceMatchMemory.h"
 #include "ReferenceTrack.h"
 #include <vector>
 #include <memory>
@@ -180,6 +181,9 @@ public:
     // Reference vocal the take is guided towards (empty when none is loaded)
     ReferenceTrack &getReference() { return reference; }
     const ReferenceTrack &getReference() const { return reference; }
+    // What Match Reference last did, so its popup can pick up from there
+    ReferenceMatchMemory &getReferenceMatch() { return referenceMatch; }
+    const ReferenceMatchMemory &getReferenceMatch() const { return referenceMatch; }
 
     // Notes
     std::vector<Note> &getNotes() { return notes; }
@@ -315,6 +319,7 @@ private:
 
     AudioData audioData;
     ReferenceTrack reference;
+    ReferenceMatchMemory referenceMatch;
     std::vector<Note> notes;
 
     float globalPitchOffset = 0.0f;

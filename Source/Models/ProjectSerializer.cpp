@@ -12,7 +12,7 @@
 namespace
 {
 constexpr std::uint32_t kProjectArchiveMagic = 0x504E4152u; // PNAR
-constexpr int kProjectArchiveVersion = 11;
+constexpr int kProjectArchiveVersion = 12;
 constexpr int kProjectArchiveHasOriginalWaveform = 1 << 0;
 constexpr int kProjectArchiveHasMelSpectrogram = 1 << 1;
 constexpr int kProjectArchiveHasRenderedWaveform = 1 << 2;
@@ -229,6 +229,8 @@ juce::var ProjectSerializer::toJson(const Project& project,
     if (project.getReference().isLoaded())
         obj->setProperty("reference",
                          referenceToJson(project.getReference(), includePitchData));
+    obj->setProperty("referenceMatch",
+                     referenceMatchToJson(project.getReferenceMatch(), includePitchData));
 
     if (includePitchData)
         obj->setProperty("pitchData", pitchDataToJson(project.getAudioData()));
@@ -421,6 +423,9 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
     // Reference vocal
     project.getReference() = {};
     referenceFromJson(project.getReference(), json.getProperty("reference", juce::var()));
+    project.getReferenceMatch() = {};
+    referenceMatchFromJson(project.getReferenceMatch(),
+                           json.getProperty("referenceMatch", juce::var()));
 
     // Pitch data
     auto pitchDataVar = json.getProperty("pitchData", juce::var());
@@ -604,10 +609,22 @@ bool ProjectSerializer::toBinaryArchive(const Project& project,
 
     // v11: reference vocal analysis and alignment (all empty without one).
     const auto& reference = project.getReference();
-    return writeFloatVector(out, reference.f0) &&
-           writeFloatVector(out, reference.features.cepstra) &&
-           writeFloatVector(out, reference.features.activity) &&
-           writeFloatVector(out, reference.referenceFrameForTakeFrame);
+    if (!writeFloatVector(out, reference.f0) ||
+        !writeFloatVector(out, reference.features.cepstra) ||
+        !writeFloatVector(out, reference.features.activity) ||
+        !writeFloatVector(out, reference.referenceFrameForTakeFrame))
+        return false;
+
+    // v12: Match Reference's remembered note contours, in the order of the
+    // entries in the metadata.
+    const auto& matchEntries = project.getReferenceMatch().entries;
+    if (!out.writeInt64(static_cast<juce::int64>(matchEntries.size())))
+        return false;
+    for (const auto& entry : matchEntries)
+        if (!writeFloatVector(out, entry.before.bakedDeltaPitch) ||
+            !writeFloatVector(out, entry.after.bakedDeltaPitch))
+            return false;
+    return true;
 }
 
 bool ProjectSerializer::fromBinaryArchive(Project& project, const void* data,
@@ -790,6 +807,19 @@ bool ProjectSerializer::fromBinaryArchive(Project& project, const void* data,
             reference = {};
     }
 
+    auto& matchEntries = project.getReferenceMatch().entries;
+    if (archiveVersion >= 12) {
+        const auto entryCount = in.readInt64();
+        if (entryCount < 0 || static_cast<size_t>(entryCount) != matchEntries.size())
+            return false;
+        for (auto& entry : matchEntries)
+            if (!readFloatVector(in, entry.before.bakedDeltaPitch) ||
+                !readFloatVector(in, entry.after.bakedDeltaPitch))
+                return false;
+    } else {
+        matchEntries.clear();
+    }
+
     if (audioData.baseF0.empty())
         audioData.baseF0 = audioData.f0;
     if (audioData.rawF0.empty()) {
@@ -878,6 +908,86 @@ void ProjectSerializer::referenceFromJson(ReferenceTrack& reference,
     if (reference.features.cepstra.size() !=
         reference.features.activity.size() * ReferenceAlignment::kNumCepstra)
         reference = {};
+}
+
+juce::var ProjectSerializer::referenceMatchToJson(const ReferenceMatchMemory& memory,
+                                                  bool includeContours) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("notePitch", memory.settings.notePitch);
+    obj->setProperty("expression", memory.settings.expression);
+    obj->setProperty("transpose", memory.settings.transpose);
+    juce::Array<juce::var> entries;
+    for (const auto& entry : memory.entries) {
+        auto* entryObj = new juce::DynamicObject();
+        entryObj->setProperty("start", entry.startFrame);
+        entryObj->setProperty("end", entry.endFrame);
+        entryObj->setProperty("before", notePitchStateToJson(entry.before, includeContours));
+        entryObj->setProperty("after", notePitchStateToJson(entry.after, includeContours));
+        entries.add(juce::var(entryObj));
+    }
+    obj->setProperty("notes", entries);
+    return juce::var(obj);
+}
+
+void ProjectSerializer::referenceMatchFromJson(ReferenceMatchMemory& memory,
+                                               const juce::var& json) {
+    if (!json.isObject())
+        return;
+    const auto number = [&json](const char* name, double fallback) {
+        return static_cast<float>(static_cast<double>(json.getProperty(name, fallback)));
+    };
+    memory.settings.notePitch = number("notePitch", 1.0);
+    memory.settings.expression = number("expression", 0.0);
+    memory.settings.transpose = number("transpose", 0.0);
+    if (const auto* entries = json.getProperty("notes", juce::var()).getArray()) {
+        for (const auto& entryVar : *entries) {
+            ReferenceMatchMemory::Entry entry;
+            entry.startFrame = static_cast<int>(entryVar.getProperty("start", 0));
+            entry.endFrame = static_cast<int>(entryVar.getProperty("end", 0));
+            entry.before = notePitchStateFromJson(entryVar.getProperty("before", juce::var()));
+            entry.after = notePitchStateFromJson(entryVar.getProperty("after", juce::var()));
+            memory.entries.push_back(std::move(entry));
+        }
+    }
+}
+
+juce::var ProjectSerializer::notePitchStateToJson(const NotePitchState& state,
+                                                  bool includeContour) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("midiNote", state.midiNote);
+    obj->setProperty("lastNonMacroMidiNote", state.lastNonMacroMidiNote);
+    obj->setProperty("tiltLeft", state.tiltLeft);
+    obj->setProperty("tiltRight", state.tiltRight);
+    obj->setProperty("vibrato", state.vibrato);
+    obj->setProperty("pitchDrift", state.pitchDrift);
+    obj->setProperty("smoothLeftFrames", state.smoothLeftFrames);
+    obj->setProperty("smoothRightFrames", state.smoothRightFrames);
+    obj->setProperty("deltaScale", state.deltaScale);
+    obj->setProperty("deltaOffset", state.deltaOffset);
+    if (includeContour)
+        obj->setProperty("bakedDeltaPitch", floatArrayToString(state.bakedDeltaPitch, 4));
+    return juce::var(obj);
+}
+
+NotePitchState ProjectSerializer::notePitchStateFromJson(const juce::var& json) {
+    NotePitchState state;
+    const auto number = [&json](const char* name, double fallback) {
+        return static_cast<float>(static_cast<double>(json.getProperty(name, fallback)));
+    };
+    state.midiNote = number("midiNote", 0.0);
+    state.lastNonMacroMidiNote = number("lastNonMacroMidiNote", 0.0);
+    state.tiltLeft = number("tiltLeft", 0.0);
+    state.tiltRight = number("tiltRight", 0.0);
+    state.vibrato = number("vibrato", 1.0);
+    state.pitchDrift = number("pitchDrift", 1.0);
+    state.smoothLeftFrames = static_cast<int>(json.getProperty("smoothLeftFrames", 0));
+    state.smoothRightFrames = static_cast<int>(json.getProperty("smoothRightFrames", 0));
+    state.deltaScale = number("deltaScale", 1.0);
+    state.deltaOffset = number("deltaOffset", 0.0);
+    const auto contour = json.getProperty("bakedDeltaPitch", juce::var()).toString();
+    if (contour.isNotEmpty())
+        state.bakedDeltaPitch = stringToFloatArray(contour);
+    return state;
 }
 
 juce::var ProjectSerializer::noteToJson(const Note& note,

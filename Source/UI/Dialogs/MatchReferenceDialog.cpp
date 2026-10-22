@@ -12,14 +12,20 @@ namespace {
 class Content final : public juce::Component
 {
 public:
-  Content(std::function<void(const ReferenceMatch::Settings &)> preview,
+  Content(const ReferenceMatch::Settings &initial,
+          std::function<void(const ReferenceMatch::Settings &)> preview,
           std::function<void(bool)> completed, std::function<void()> refreshPreview)
       : onPreview(std::move(preview)), onComplete(std::move(completed)),
         onRefreshPreview(std::move(refreshPreview))
   {
-    setupRow(notePitchLabel, notePitch, TR("match.note_pitch"), 0.0, 100.0, " %", 100.0);
-    setupRow(expressionLabel, expression, TR("match.expression"), 0.0, 100.0, " %", 0.0);
-    setupRow(transposeLabel, transpose, TR("match.transpose"), -12.0, 12.0, " st", 0.0);
+    // Double-click returns a slider to its default, not to where it opened.
+    const ReferenceMatch::Settings defaults;
+    setupRow(notePitchLabel, notePitch, TR("match.note_pitch"), 0.0, 100.0, " %",
+             initial.notePitch * 100.0, defaults.notePitch * 100.0);
+    setupRow(expressionLabel, expression, TR("match.expression"), 0.0, 100.0, " %",
+             initial.expression * 100.0, defaults.expression * 100.0);
+    setupRow(transposeLabel, transpose, TR("match.transpose"), -12.0, 12.0, " st",
+             initial.transpose, defaults.transpose);
 
     setupButton(cancelButton, TR("dialog.cancel"));
     setupButton(okButton, TR("dialog.ok"));
@@ -37,9 +43,6 @@ public:
   }
 
   void cancel() { finish(false); }
-
-  // Shows the defaults' effect straight away: the popup opens at 100% pitch.
-  void previewInitialSettings() { previewMatch(); }
 
   void paint(juce::Graphics &g) override
   {
@@ -71,7 +74,7 @@ public:
 private:
   void setupRow(juce::Label &label, MacroSlider &slider, const juce::String &text,
                 double minimum, double maximum, const juce::String &suffix,
-                double initial)
+                double initial, double reset)
   {
     label.setText(text, juce::dontSendNotification);
     label.setFont(AppFont::getFont(15.0f));
@@ -79,7 +82,7 @@ private:
     slider.setRange(minimum, maximum, 1.0);
     slider.setTextValueSuffix(suffix);
     slider.setValue(initial, juce::dontSendNotification);
-    slider.setDoubleClickReturnValue(true, initial);
+    slider.setDoubleClickReturnValue(true, reset);
     slider.onDragStart = [this] { sliderDragging = true; };
     slider.onDragEnd = [this] { sliderDragging = false; refreshMatch(); };
     slider.onValueChange = [this] { previewMatch(); };
@@ -168,6 +171,7 @@ void dismissPopup()
 }
 
 void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
+               const ReferenceMatch::Settings &initial,
                std::function<void(const ReferenceMatch::Settings &)> onPreview,
                std::function<void(bool)> onComplete,
                std::function<void()> onRefreshPreview)
@@ -179,7 +183,7 @@ void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
 
   constexpr int width = 340;
   constexpr int height = 152;
-  auto *content = new Content(std::move(onPreview), std::move(onComplete),
+  auto *content = new Content(initial, std::move(onPreview), std::move(onComplete),
                               std::move(onRefreshPreview));
   content->setSize(width, height);
   const auto bounds = parent->getLocalBounds();
@@ -191,7 +195,6 @@ void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
   content->setBounds(x, y, width, height);
   content->toFront(false);
   activePopup = content;
-  content->previewInitialSettings();
 }
 
 } // namespace MatchReferenceDialog
