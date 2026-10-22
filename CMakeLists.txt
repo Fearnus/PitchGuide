@@ -204,6 +204,36 @@ else()
     message(WARNING "ONNX Runtime configuration failed")
 endif()
 
+# JUCE patches: third_party/JUCE is the official JUCE 8.0.14 release, and
+# third_party/patches/juce-8.0.14.patch holds the few changes PitchGuide needs
+# on top (see the patch's header). Apply it to the checkout once; a checkout it
+# no longer fits (another JUCE version, local edits) stops the configure.
+# Before moving the submodule to another commit, discard the patch with
+# `git -C third_party/JUCE checkout -- .`.
+set(PITCHNET_JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/JUCE")
+set(PITCHNET_JUCE_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/patches/juce-8.0.14.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PITCHNET_JUCE_PATCH}")
+find_package(Git REQUIRED)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check --whitespace=nowarn "${PITCHNET_JUCE_PATCH}"
+    WORKING_DIRECTORY "${PITCHNET_JUCE_DIR}"
+    RESULT_VARIABLE PITCHNET_JUCE_PATCH_PRESENT
+    OUTPUT_QUIET ERROR_QUIET)
+if(NOT PITCHNET_JUCE_PATCH_PRESENT EQUAL 0)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --whitespace=nowarn "${PITCHNET_JUCE_PATCH}"
+        WORKING_DIRECTORY "${PITCHNET_JUCE_DIR}"
+        RESULT_VARIABLE PITCHNET_JUCE_PATCH_RESULT
+        ERROR_VARIABLE PITCHNET_JUCE_PATCH_ERROR)
+    if(NOT PITCHNET_JUCE_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR
+            "Could not apply ${PITCHNET_JUCE_PATCH} to third_party/JUCE:\n"
+            "${PITCHNET_JUCE_PATCH_ERROR}\n"
+            "Run `git submodule update --init` for the JUCE release this project uses.")
+    endif()
+    message(STATUS "Applied the PitchGuide changes to JUCE (third_party/patches)")
+endif()
+
 # Add JUCE as a subdirectory (git submodule in third_party/)
 add_subdirectory(third_party/JUCE)
 

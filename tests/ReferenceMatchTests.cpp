@@ -4,6 +4,7 @@
 #include "../Source/Utils/Constants.h"
 #include "../Source/Utils/PitchCurveProcessor.h"
 #include "../Source/Utils/ReferenceMatch.h"
+#include "../Source/Utils/TakeTimeline.h"
 #include "TestAssert.h"
 
 #include <cmath>
@@ -11,9 +12,10 @@
 #include <iostream>
 #include <vector>
 
-// A take with three notes and a reference aligned frame for frame. The
-// reference sings notes 1 and 2 at other pitches, with its own vibrato, and
-// is silent over note 3.
+// A take with three notes and a reference aligned frame for frame, or
+// `referenceDelay` frames later. The reference sings notes 1 and 2 at other
+// pitches, with its own vibrato, and is silent over note 3. Each note is a
+// region of its own, with 2 frames of unpitched audio on either side.
 namespace {
 
 constexpr int kFrames = 300;
@@ -30,7 +32,7 @@ float referenceVibrato(int frame) {
     return 0.4f * static_cast<float>(std::sin(kTwoPi * frame / 16.0));
 }
 
-Project makeProject() {
+Project makeProject(int referenceDelay = 0) {
     Project project;
     auto& audio = project.getAudioData();
     audio.sampleRate = SAMPLE_RATE;
@@ -41,10 +43,11 @@ Project makeProject() {
 
     auto& reference = project.getReference();
     reference.sourcePath = "/songs/reference.wav";
-    reference.f0.assign(kFrames, 0.0f);
+    reference.f0.assign(static_cast<size_t>(kFrames + referenceDelay), 0.0f);
     reference.referenceFrameForTakeFrame.resize(kFrames);
     for (int frame = 0; frame < kFrames; ++frame)
-        reference.referenceFrameForTakeFrame[static_cast<size_t>(frame)] = static_cast<float>(frame);
+        reference.referenceFrameForTakeFrame[static_cast<size_t>(frame)] =
+            static_cast<float>(frame + referenceDelay);
 
     for (const auto& span : kNotes) {
         Note note(span.start, span.end, span.takeMidi);
@@ -54,12 +57,13 @@ Project makeProject() {
             contour[i] = 0.2f * static_cast<float>(std::sin(kTwoPi * static_cast<double>(i) / 40.0));
         note.setOriginalDeltaPitch(contour);
         project.addNote(std::move(note));
+        audio.segmentChunkRanges.emplace_back(span.start - 2, span.end + 2);
         for (int frame = span.start; frame < span.end; ++frame) {
             audio.f0[static_cast<size_t>(frame)] = midiToFreq(span.takeMidi);
             audio.rawF0[static_cast<size_t>(frame)] = midiToFreq(span.takeMidi);
             audio.voicedMask[static_cast<size_t>(frame)] = true;
             if (span.referenceMidi > 0.0f)
-                reference.f0[static_cast<size_t>(frame)] =
+                reference.f0[static_cast<size_t>(frame + referenceDelay)] =
                     midiToFreq(span.referenceMidi + referenceVibrato(frame));
         }
     }
@@ -191,9 +195,13 @@ Project matchedOnce(const ReferenceMatch::Settings& settings) {
 }
 
 void checkSameMatch(const Project& actual, const Project& expected, const char* what) {
-    for (size_t i = 0; i < actual.getNotes().size(); ++i)
-        checkNear(actual.getNotes()[i].getMidiNote(), expected.getNotes()[i].getMidiNote(),
-                  1e-5f, what);
+    for (size_t i = 0; i < actual.getNotes().size(); ++i) {
+        const auto& note = actual.getNotes()[i];
+        const auto& other = expected.getNotes()[i];
+        checkNear(note.getMidiNote(), other.getMidiNote(), 1e-5f, what);
+        CHECK(note.getStartFrame() == other.getStartFrame());
+        CHECK(note.getEndFrame() == other.getEndFrame());
+    }
     for (int frame = 0; frame < kFrames; ++frame)
         checkNear(curveAt(actual, frame), curveAt(expected, frame), 1e-5f, what);
 }
@@ -238,8 +246,8 @@ void editedNotesStartAgain() {
     PitchCurveProcessor::rebuildBaseFromNotes(project);
 
     const auto bases = ReferenceMatch::bases(project, allNotes(project));
-    CHECK(bases[0].pitch.midiNote == 59.0f);
-    CHECK(bases[1].pitch.midiNote == 62.0f);
+    CHECK(bases[0].state.midiNote == 59.0f);
+    CHECK(bases[1].state.midiNote == 62.0f);
 
     matchAndConfirm(project, {0.5f, 0.0f, 0.0f});
     checkNear(notes[0].getMidiNote(), 60.15f, 0.05f, "edited note at 50%");
@@ -266,12 +274,12 @@ void undoRestoresWhatIsRemembered() {
     action.undo();
     checkNear(project.getNotes()[0].getMidiNote(), 60.65f, 0.05f, "undone to 50%");
     CHECK(project.getReferenceMatch().settings.notePitch == 0.5f);
-    CHECK(ReferenceMatch::bases(project, notes)[0].pitch.midiNote == 60.0f);
+    CHECK(ReferenceMatch::bases(project, notes)[0].state.midiNote == 60.0f);
 
     action.redo();
     checkNear(project.getNotes()[0].getMidiNote(), 61.3f, 0.05f, "redone to 100%");
     CHECK(project.getReferenceMatch().settings.notePitch == 1.0f);
-    CHECK(ReferenceMatch::bases(project, notes)[0].pitch.midiNote == 60.0f);
+    CHECK(ReferenceMatch::bases(project, notes)[0].state.midiNote == 60.0f);
 }
 
 // Plug-in state (binary archive) and .pitchnet documents (JSON) both keep what
@@ -300,7 +308,7 @@ void survivesSaveAndLoad() {
         CHECK(memory.entries.size() == 2);
 
         const auto bases = ReferenceMatch::bases(*restored, allNotes(*restored));
-        checkNear(bases[0].pitch.midiNote, 60.0f, 1e-4f, "base after loading");
+        checkNear(bases[0].state.midiNote, 60.0f, 1e-4f, "base after loading");
         CHECK(ReferenceMatch::apply(*restored, bases, memory.settings).changed == 0);
     }
 
@@ -311,6 +319,89 @@ void survivesSaveAndLoad() {
     CHECK(ProjectSerializer::fromBinaryArchive(plain, plainArchive.getData(), plainArchive.getSize()));
     CHECK(plain.getReferenceMatch().settings.notePitch == 1.0f);
     CHECK(plain.getReferenceMatch().entries.empty());
+}
+
+// Timing moves the notes the reference sings over to where it sings them,
+// carries the others along, and pitch matching still reads the reference
+// where each note was sung.
+void timingFollowsTheReference() {
+    auto project = makeProject(10);
+    const auto& notes = project.getNotes();
+    for (float frame : {0.0f, 25.0f, 100.0f, 299.0f})
+        checkNear(TakeTimeline(notes).sourceFrameAt(frame), frame, 1e-4f, "timeline untouched");
+
+    const auto original = ReferenceMatch::capture(allNotes(project));
+    CHECK(ReferenceMatch::apply(project, original, {0.0f, 0.0f, 0.0f, 1.0f}).changed == 3);
+    CHECK(notes[0].getStartFrame() == 30 && notes[0].getEndFrame() == 100);
+    CHECK(notes[1].getStartFrame() == 120 && notes[1].getEndFrame() == 190);
+    // The reference is silent over note 3: it moves as much as note 2.
+    CHECK(notes[2].getStartFrame() == 210 && notes[2].getEndFrame() == 280);
+    CHECK(notes[0].getMidiNote() == 60.0f);
+
+    ReferenceMatch::apply(project, original, {0.0f, 0.0f, 0.0f, 0.5f});
+    CHECK(notes[0].getStartFrame() == 25 && notes[0].getEndFrame() == 95);
+
+    // Pitch and expression: the note takes on the reference's vibrato where
+    // timing put it.
+    ReferenceMatch::apply(project, original, {1.0f, 1.0f, 0.0f, 1.0f});
+    checkNear(notes[1].getMidiNote(), 66.8f, 0.05f, "note 2 after timing");
+    for (int frame = 120 + 2; frame < 190 - 2; ++frame)
+        checkNear(curveAt(project, frame), 66.8f + referenceVibrato(frame - 10), 0.02f,
+                  "curve after timing");
+
+    // The reference line follows the notes as sung.
+    const TakeTimeline timeline(notes);
+    checkNear(timeline.sourceFrameAt(130.0f), 120.0f, 1e-4f, "timeline inside a note");
+    checkNear(timeline.sourceFrameAt(105.0f), 95.0f, 1e-4f, "timeline between notes");
+    checkNear(timeline.sourceFrameAt(0.0f), -10.0f, 1e-4f, "timeline before the notes");
+
+    ReferenceMatch::restore(project, original);
+    checkSameMatch(project, makeProject(10), "timing restored");
+}
+
+// Timing never makes notes overlap: a note pushed toward a neighbour that is
+// not being matched stops where the timing tool would stop it.
+void timingRespectsNeighbours() {
+    auto project = makeProject(40);
+    const std::vector<Note*> firstOnly{&project.getNotes()[0]};
+    ReferenceMatch::apply(project, ReferenceMatch::capture(firstOnly), {0.0f, 0.0f, 0.0f, 1.0f});
+    const auto& notes = project.getNotes();
+    // Note 1 would move to [60, 130). Note 2 stays at [110, 180), and their
+    // regions need 2 + 2 frames of unpitched audio and a frame between them.
+    CHECK(notes[0].getStartFrame() == 60);
+    CHECK(notes[0].getEndFrame() == 105);
+    CHECK(notes[1].getStartFrame() == 110 && notes[1].getEndFrame() == 180);
+}
+
+// Reopening adjusts timing from before the match too: notes are found by
+// where they were sung, wherever timing moved them, also after saving.
+void reopeningAdjustsTiming() {
+    auto project = makeProject(10);
+    matchAndConfirm(project, {1.0f, 0.5f, 0.0f, 1.0f});
+    CHECK(project.getNotes()[0].getStartFrame() == 30);
+    CHECK(ReferenceMatch::bases(project, allNotes(project))[0].state.startFrame == 20);
+    CHECK(matchAndConfirm(project, {1.0f, 0.5f, 0.0f, 1.0f}).changed == 0);
+
+    const ReferenceMatch::Settings settings{1.0f, 0.5f, 0.0f, 0.5f};
+    matchAndConfirm(project, settings);
+    auto once = makeProject(10);
+    ReferenceMatch::apply(once, ReferenceMatch::capture(allNotes(once)), settings);
+    checkSameMatch(project, once, "timing adjusted");
+
+    juce::MemoryBlock archive;
+    CHECK(ProjectSerializer::toBinaryArchive(project, archive));
+    Project fromArchive;
+    CHECK(ProjectSerializer::fromBinaryArchive(fromArchive, archive.getData(), archive.getSize()));
+    Project fromJson;
+    CHECK(ProjectSerializer::fromJson(fromJson, ProjectSerializer::toJson(project, false, true)));
+    for (auto* restored : {&fromArchive, &fromJson}) {
+        restored->getAudioData().melSpectrogram = project.getAudioData().melSpectrogram;
+        PitchCurveProcessor::rebuildBaseFromNotes(*restored);
+        checkNear(restored->getReferenceMatch().settings.timing, 0.5f, 1e-6f, "timing setting");
+        const auto bases = ReferenceMatch::bases(*restored, allNotes(*restored));
+        CHECK(bases[0].state.startFrame == 20 && bases[0].state.endFrame == 90);
+        CHECK(ReferenceMatch::apply(*restored, bases, settings).changed == 0);
+    }
 }
 
 } // namespace
@@ -325,5 +416,8 @@ int main() {
     editedNotesStartAgain();
     undoRestoresWhatIsRemembered();
     survivesSaveAndLoad();
+    timingFollowsTheReference();
+    timingRespectsNeighbours();
+    reopeningAdjustsTiming();
     std::cout << "Reference match tests passed\n";
 }

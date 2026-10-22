@@ -395,7 +395,7 @@ bool PianoRollWorkspaceView::showMatchReferencePopup()
         auto matched = ReferenceMatch::capture(openedNotes);
         bool notesChanged = false;
         for (size_t i = 0; i < matched.size(); ++i)
-          notesChanged |= !matched[i].pitch.isCloseTo(session->opened[i].pitch);
+          notesChanged |= !matched[i].state.isCloseTo(session->opened[i].state);
         if (!notesChanged) {
           // At most the settings to reopen with changed: nothing to undo.
           const auto &settings = session->settings, &previous = memoryBefore.settings;

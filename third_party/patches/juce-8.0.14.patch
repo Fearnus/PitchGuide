@@ -1,0 +1,375 @@
+Changes PitchGuide needs on top of the official JUCE 8.0.14 release
+(third_party/JUCE). CMake applies this patch to the submodule when it
+configures the project; see "JUCE patches" in CMakeLists.txt.
+
+They are the six commits of the Session Loops JUCE fork
+(https://github.com/SessionLoops/JUCE, by Jie Chen), which PitchNet was
+built against, squashed into one patch:
+
+  02042b7d allow undo and redo shortcuts
+  468e6afc support for ARA AAX
+  8c071ce9 revert function name to isTimeStretchReflectingTempo()
+  d9c9776d Update juce_audio_plugin_client_VST3.cpp
+  c39890a3 Update juce_audio_plugin_client_AAX.cpp
+  2b4ea930 fix au capture failed bug
+
+What they do:
+  - VST3: forward Ctrl/Cmd shortcuts (undo, redo, Match Reference...) that
+    hosts such as FL Studio would otherwise keep from the plug-in editor.
+  - AudioProcessorListener::ChangeDetails::withTailLengthChanged(), and the
+    AU wrapper reporting a changed tail length to the host.
+  - ARA in the AAX wrapper.
+
+Like JUCE, these changes are available under the GNU AGPLv3. The patch
+reproduces the fork's files exactly; the files use CRLF line endings, as
+they do in JUCE, so this file must not be converted (see .gitattributes).
+
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+index d8329656..f1cd8501 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AAX.cpp
+@@ -90,6 +90,11 @@ static_assert (AAX_SDK_CURRENT_REVISION >= AAX_SDK_2p6p1_REVISION, "JUCE require
+ #include <AAX_Assert.h>
+ #include <AAX_TransportTypes.h>
+ 
++#if JucePlugin_Enable_ARA
++#include <NonPublic/ARA/ARAAAX.h>
++#include <NonPublic/ARA/AAX_VARABinding.h>
++#endif
++
+ JUCE_END_IGNORE_WARNINGS_MSVC
+ JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+ 
+@@ -646,7 +651,7 @@ namespace AAXClasses
+                 setOpaque (true);
+                 setBroughtToFrontOnMouseClick (true);
+ 
+-                pluginEditor.reset (plugin.createEditorAndMakeActive());
++                pluginEditor.reset (plugin.createEditorIfNeeded());
+                 addAndMakeVisible (pluginEditor.get());
+ 
+                 if (pluginEditor != nullptr)
+@@ -693,6 +698,14 @@ namespace AAXClasses
+             void mouseUp   (const MouseEvent& e) override  { callMouseMethod (e, &AAX_IViewContainer::HandleParameterMouseUp); }
+             void mouseDrag (const MouseEvent& e) override  { callMouseMethod (e, &AAX_IViewContainer::HandleParameterMouseDrag); }
+ 
++           #if JucePlugin_Enable_ARA
++            void resized() override
++            {
++                if (pluginEditor != nullptr)
++                    pluginEditor->setBounds (getLocalBounds());
++            }
++           #endif
++
+             void parentSizeChanged() override
+             {
+                 resizeHostWindow();
+@@ -817,6 +830,14 @@ namespace AAXClasses
+             return new JuceAAX_Processor();
+         }
+ 
++       #if JucePlugin_Enable_ARA
++    	AAX_Result Initialize (IACFUnknown* iController) override
++        {
++        	aaxaraBinding.reset (new ARA::AAX_VARABinding (iController));
++            return AAX_CEffectParameters::Initialize (iController);
++        }
++       #endif
++
+         AAX_Result Uninitialize() override
+         {
+             cancelPendingUpdate();
+@@ -836,6 +857,36 @@ namespace AAXClasses
+         AAX_Result EffectInit() override
+         {
+             cancelPendingUpdate();
++
++           #if JucePlugin_Enable_ARA
++	        ARA::ARAPlugInInstanceRoleFlags knownRoles = 0;
++	        auto result = aaxaraBinding->GetInstanceRoleFlags (&knownRoles, &assignedRoles);
++	
++	        // If no ARA roles provided - work as a regular AAX plug-in
++	        if (result == AAX_SUCCESS)
++	        {
++		        assignedRoles &= (ARA::kARAPlaybackRendererRole | ARA::kARAEditorRendererRole | ARA::kARAEditorViewRole);
++		        if (assignedRoles)
++		        {
++			        result = aaxaraBinding->GetDocumentController (&documentControllerRef);
++			        if (result != AAX_SUCCESS)
++				        return result;
++
++			        auto araPluginExtension = dynamic_cast<AudioProcessorARAExtension*> (pluginInstance.get());
++			        if (!araPluginExtension)
++				        return AAX_ERROR_NULL_OBJECT;
++
++			        auto* const plugInEnxtensionInstance = araPluginExtension->bindToARA (documentControllerRef, knownRoles, assignedRoles);
++			        if (!plugInEnxtensionInstance)
++				        return AAX_ERROR_NULL_OBJECT;
++			
++			        result = aaxaraBinding->SetPlugInExtensionInstance (plugInEnxtensionInstance);
++			        if (result != AAX_SUCCESS)
++				        return result;
++		        }
++	        }
++           #endif      
++
+             check (Controller()->GetSampleRate (&sampleRate));
+             processingSidechainChange = false;
+             auto err = preparePlugin();
+@@ -931,7 +982,7 @@ namespace AAXClasses
+                     auto numObjects = dataSize / sizeof (PluginInstanceInfo);
+                     auto* objects = static_cast<PluginInstanceInfo*> (data);
+ 
+-                    jassert (numObjects == 1); // not sure how to handle more than one
++                    jassert (numObjects == 1); // not sure how to handle more than one..
+ 
+                     for (size_t i = 0; i < numObjects; ++i)
+                         new (objects + i) PluginInstanceInfo (const_cast<JuceAAX_Processor&> (*this));
+@@ -2279,6 +2330,12 @@ namespace AAXClasses
+             std::atomic<int> state { 0 };
+         };
+ 
++       #if JucePlugin_Enable_ARA
++        std::unique_ptr<ARA::AAX_VARABinding> aaxaraBinding;
++	    ARA::ARADocumentControllerRef documentControllerRef;
++	    ARA::ARAPlugInInstanceRoleFlags assignedRoles;
++       #endif
++
+         RecordingState recordingState;
+ 
+         std::atomic<bool> processingSidechainChange, sidechainDesired;
+@@ -2414,6 +2471,9 @@ namespace AAXClasses
+             aaxInputFormat = aaxOutputFormat;
+        #endif
+ 
++        if (processor.isMidiEffect())
++            aaxInputFormat = aaxOutputFormat = AAX_eStemFormat_Mono;
++
+         check (desc.AddAudioIn  (JUCEAlgorithmIDs::inputChannels));
+         check (desc.AddAudioOut (JUCEAlgorithmIDs::outputChannels));
+ 
+@@ -2481,7 +2541,7 @@ namespace AAXClasses
+ 
+         properties->AddProperty (AAX_eProperty_PlugInID_Native, pluginID);
+ 
+-       #if ! JucePlugin_AAXDisableAudioSuite
++       #if ! (JucePlugin_AAXDisableAudioSuite || JucePlugin_Enable_ARA)
+         properties->AddProperty (AAX_eProperty_PlugInID_AudioSuite,
+                                  extensions.getPluginIDForMainBusConfig (fullLayout.getMainInputChannelSet(),
+                                                                          fullLayout.getMainOutputChannelSet(),
+@@ -2543,6 +2603,17 @@ namespace AAXClasses
+             }
+         }
+ 
++       #if JucePlugin_Enable_ARA
++        // An ARA-capable effect may also be instantiated without any ARA roles,
++        // in which case EffectInit() deliberately runs it as a regular AAX
++        // plug-in. Keep the descriptor visible so Pro Tools can offer that
++        // regular instance in its insert menus as well as use it for ARA.
++        properties->AddProperty (AAX_eProperty_ShowInMenus, true);
++	    properties->AddProperty (AAX_eProperty_UsesTransport, true);
++        properties->AddProperty (AAX_eProperty_Constraint_Topology, AAX_eConstraintTopology_Monolithic);
++        properties->AddPointerProperty (ARA::AAX_eProperty_ARAFactoryPointer, createARAFactory());
++       #endif
++
+         check (desc.AddProcessProc_Native (algorithmProcessCallback, properties));
+     }
+ 
+@@ -2583,16 +2654,10 @@ namespace AAXClasses
+             // MIDI effect plug-ins do not support any audio channels
+             jassert (numInputBuses == 0 && numOutputBuses == 0);
+ 
+-            for (const auto format : aaxFormats)
++            if (auto* desc = descriptor.NewComponentDescriptor())
+             {
+-                const auto channelSet = channelSetFromStemFormat (format, false);
+-                const AudioProcessor::BusesLayout layout { { channelSet }, { channelSet } };
+-
+-                if (auto* desc = descriptor.NewComponentDescriptor())
+-                {
+-                    createDescriptor (*desc, layout, *plugin, pluginIds, numMeters);
+-                    check (descriptor.AddComponent (desc));
+-                }
++                createDescriptor (*desc, plugin->getBusesLayout(), *plugin, pluginIds, numMeters);
++                check (descriptor.AddComponent (desc));
+             }
+         }
+         else
+@@ -2634,6 +2699,35 @@ void AAX_CALLBACK AAXClasses::algorithmProcessCallback (JUCEAlgorithmContext* co
+     AAXClasses::JuceAAX_Processor::algorithmCallback (instancesBegin, instancesEnd);
+ }
+ 
++static bool HostDeclaresARASupport(AAX_ICollection* inCollection)
++{
++	bool result = false;
++	const AAX_IDescriptionHost* const hostDesc = inCollection->DescriptionHost();
++	if (hostDesc)
++	{
++		std::unique_ptr<const AAX_IFeatureInfo> featureInfo(hostDesc->AcquireFeatureProperties(AAXATTR_ClientFeature_ARA));
++		if (featureInfo)
++		{
++			AAX_ESupportLevel featureSupportLevel = AAX_eSupportLevel_Uninitialized;
++			const AAX_Result err = featureInfo->SupportLevel(featureSupportLevel);
++			AAX_TRACE_RELEASE(kAAX_Trace_Priority_Normal, "ARA initialization: host support for ARA: %s, err: %ld",
++			                    AAX::AsStringSupportLevel(featureSupportLevel).c_str(), (long int)err);
++			result = (err == AAX_SUCCESS) && (featureSupportLevel == AAX_eSupportLevel_Supported);
++		}
++		else
++		{
++			AAX_TRACE_RELEASE(kAAX_Trace_Priority_Normal, "ARA initialization: Unable to query AAXATTR_ClientFeature_ARA");
++			result = false;
++		}
++	}
++	else
++	{
++		AAX_TRACE_RELEASE(kAAX_Trace_Priority_High, "ARA initialization: AAX_IDescriptionHost is null");
++		result = false;
++	}
++	return result;
++}
++
+ //==============================================================================
+ AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection*);
+ AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection* collection)
+@@ -2647,6 +2741,11 @@ AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection* collection)
+ 
+     if (auto* descriptor = collection->NewDescriptor())
+     {
++       #if JucePlugin_Enable_ARA
++        if (!HostDeclaresARASupport(collection))
++	        return AAX_SUCCESS;
++       #endif
++
+         AAXClasses::getPlugInDescription (*descriptor, stemFormatFeatureInfo.get());
+         collection->AddEffect (JUCE_STRINGIFY (JucePlugin_AAXIdentifier), descriptor);
+ 
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+index 68c8f3c0..4b84e0e2 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -2008,6 +2008,9 @@ private:
+         {
+             int flags = 0;
+ 
++            if (details.tailLengthChanged)
++                flags |= tailLengthChangedFlag;
++
+             if (details.latencyChanged)
+                 flags |= latencyChangedFlag;
+ 
+@@ -2033,6 +2036,9 @@ private:
+         {
+             const auto flags = callbackFlags.exchange (0);
+ 
++            if ((flags & tailLengthChangedFlag) != 0)
++                owner.PropertyChanged (kAudioUnitProperty_TailTime, kAudioUnitScope_Global, 0);
++
+             if ((flags & latencyChangedFlag) != 0)
+                 owner.PropertyChanged (kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
+ 
+@@ -2042,7 +2048,8 @@ private:
+                 owner.PropertyChanged (kAudioUnitProperty_ParameterInfo, kAudioUnitScope_Global, 0);
+             }
+ 
+-            owner.PropertyChanged (kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0);
++            if ((flags & ~tailLengthChangedFlag) != 0)
++                owner.PropertyChanged (kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0);
+ 
+             if ((flags & programChangedFlag) != 0)
+             {
+@@ -2055,7 +2062,8 @@ private:
+ 
+         static constexpr int latencyChangedFlag       = 1 << 0,
+                              parameterInfoChangedFlag = 1 << 1,
+-                             programChangedFlag       = 1 << 2;
++                             programChangedFlag       = 1 << 2,
++                             tailLengthChangedFlag    = 1 << 3;
+ 
+         std::atomic<int> callbackFlags { 0 };
+     };
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index 3c0ca061..cd141502 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -1947,9 +1947,64 @@ private:
+            #endif
+         }
+ 
+-        ~JuceVST3Editor() override = default; // NOLINT
+-
+-        tresult PLUGIN_API queryInterface (const TUID targetIID, void** obj) override
++        ~JuceVST3Editor() override = default; // NOLINT
++
++        // Forward command-key shortcuts that VST3 hosts may otherwise consume
++        // before they reach the embedded editor.
++        tresult PLUGIN_API onKeyDown (char16 key, int16 keyCode, int16 modifiers) override
++        {
++            if (component == nullptr)
++                return kResultFalse;
++
++            auto* peer = component->getPeer();
++            if (peer == nullptr || ! component->hasKeyboardFocus (true))
++                return kResultFalse;
++
++            const auto mods = vst3ModifiersToJuce (modifiers);
++
++            if ((mods.getRawFlags() & ModifierKeys::commandModifier) == 0)
++                return kResultFalse;
++
++            // Command shortcuts are character keys, so keyCode is zero.
++            if (keyCode != 0 || key == 0)
++                return kResultFalse;
++
++            auto juceKeyCode = (int) key;
++            if (juceKeyCode >= 'A' && juceKeyCode <= 'Z')
++                juceKeyCode += ('a' - 'A');
++
++            const KeyPress keyPress (juceKeyCode, mods, (juce_wchar) key);
++            return peer->handleKeyPress (keyPress) ? kResultTrue : kResultFalse;
++        }
++
++        tresult PLUGIN_API onKeyUp (char16 key, int16 keyCode, int16 modifiers) override
++        {
++            const auto mods = vst3ModifiersToJuce (modifiers);
++
++            if ((mods.getRawFlags() & ModifierKeys::commandModifier) != 0
++                && keyCode == 0 && key != 0)
++                return kResultTrue;
++
++            return kResultFalse;
++        }
++
++        static ModifierKeys vst3ModifiersToJuce (int16 modifiers) noexcept
++        {
++            constexpr int vstShiftKey     = 1 << 0;
++            constexpr int vstAlternateKey = 1 << 1;
++            constexpr int vstCommandKey   = 1 << 2;
++            constexpr int vstControlKey   = 1 << 3;
++
++            int flags = 0;
++            if (modifiers & vstShiftKey)     flags |= ModifierKeys::shiftModifier;
++            if (modifiers & vstAlternateKey) flags |= ModifierKeys::altModifier;
++            if (modifiers & vstCommandKey)   flags |= ModifierKeys::commandModifier;
++            if (modifiers & vstControlKey)   flags |= ModifierKeys::ctrlModifier;
++
++            return ModifierKeys (flags);
++        }
++
++        tresult PLUGIN_API queryInterface (const TUID targetIID, void** obj) override
+         {
+             const auto result = testForMultiple (*this,
+                                                  targetIID,
+diff --git a/modules/juce_audio_processors_headless/processors/juce_AudioProcessorListener.h b/modules/juce_audio_processors_headless/processors/juce_AudioProcessorListener.h
+index 790b4cc9..8652cd1c 100644
+--- a/modules/juce_audio_processors_headless/processors/juce_AudioProcessorListener.h
++++ b/modules/juce_audio_processors_headless/processors/juce_AudioProcessorListener.h
+@@ -74,6 +74,9 @@ public:
+     {
+         /** @see withLatencyChanged */
+         bool latencyChanged           = false;
++        /** Indicates a changed tail length; currently supported by the AU wrapper. */
++        bool tailLengthChanged        = false;
++        [[nodiscard]] ChangeDetails withTailLengthChanged (bool b) const noexcept { return with (&ChangeDetails::tailLengthChanged, b); }
+         /** @see withParameterInfoChanged */
+         bool parameterInfoChanged     = false;
+         /** @see withProgramChanged */

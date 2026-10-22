@@ -185,6 +185,7 @@
   "reference.failed": "Could not use the reference:",
   "match.note_pitch": "Note pitch",
   "match.expression": "Expression",
+  "match.timing": "Timing",
   "match.transpose": "Transpose",
   "tooltip.match_reference": "Match the reference vocal",
   "reference.none": "Drop a reference vocal first",

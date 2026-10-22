@@ -185,6 +185,7 @@
   "reference.failed": "No se pudo usar la referencia:",
   "match.note_pitch": "Tono de nota",
   "match.expression": "Expresión",
+  "match.timing": "Tiempo",
   "match.transpose": "Transponer",
   "tooltip.match_reference": "Igualar a la voz de referencia",
   "reference.none": "Primero suelta una voz de referencia",

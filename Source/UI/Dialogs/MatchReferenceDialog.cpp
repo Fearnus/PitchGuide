@@ -24,6 +24,8 @@ public:
              initial.notePitch * 100.0, defaults.notePitch * 100.0);
     setupRow(expressionLabel, expression, TR("match.expression"), 0.0, 100.0, " %",
              initial.expression * 100.0, defaults.expression * 100.0);
+    setupRow(timingLabel, timing, TR("match.timing"), 0.0, 100.0, " %",
+             initial.timing * 100.0, defaults.timing * 100.0);
     setupRow(transposeLabel, transpose, TR("match.transpose"), -12.0, 12.0, " st",
              initial.transpose, defaults.transpose);
 
@@ -57,6 +59,7 @@ public:
     auto area = getLocalBounds().reduced(16, 10);
     for (auto row : {std::pair<juce::Label *, MacroSlider *>{&notePitchLabel, &notePitch},
                      {&expressionLabel, &expression},
+                     {&timingLabel, &timing},
                      {&transposeLabel, &transpose}})
     {
       auto bounds = area.removeFromTop(32);
@@ -106,6 +109,7 @@ private:
     settings.notePitch = static_cast<float>(notePitch.getValue() / 100.0);
     settings.expression = static_cast<float>(expression.getValue() / 100.0);
     settings.transpose = static_cast<float>(transpose.getValue());
+    settings.timing = static_cast<float>(timing.getValue() / 100.0);
     return settings;
   }
 
@@ -155,8 +159,8 @@ private:
   std::function<void()> onRefreshPreview;
   bool sliderDragging = false;
   bool previewPending = false;
-  juce::Label notePitchLabel, expressionLabel, transposeLabel;
-  MacroSlider notePitch, expression, transpose;
+  juce::Label notePitchLabel, expressionLabel, timingLabel, transposeLabel;
+  MacroSlider notePitch, expression, timing, transpose;
   juce::TextButton cancelButton, okButton;
   bool finished = false;
 };
@@ -182,7 +186,7 @@ void showPopup(juce::Component *parent, juce::Rectangle<int> anchorBounds,
   dismissPopup();
 
   constexpr int width = 340;
-  constexpr int height = 152;
+  constexpr int height = 190;
   auto *content = new Content(initial, std::move(onPreview), std::move(onComplete),
                               std::move(onRefreshPreview));
   content->setSize(width, height);

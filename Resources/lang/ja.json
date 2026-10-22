@@ -185,6 +185,7 @@
   "reference.failed": "リファレンスを使用できません:",
   "match.note_pitch": "ノートの音程",
   "match.expression": "表現",
+  "match.timing": "タイミング",
   "match.transpose": "移調",
   "tooltip.match_reference": "リファレンスのボーカルに合わせる",
   "reference.none": "先にリファレンスのボーカルをドロップしてください",

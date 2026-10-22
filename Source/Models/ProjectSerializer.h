@@ -100,9 +100,13 @@ private:
                                           bool includeContours);
     static void referenceMatchFromJson(ReferenceMatchMemory& memory,
                                        const juce::var& json);
-    static juce::var notePitchStateToJson(const NotePitchState& state,
+    static juce::var noteMatchStateToJson(const NoteMatchState& state,
                                           bool includeContour);
-    static NotePitchState notePitchStateFromJson(const juce::var& json);
+    // States saved before timing matching have no frames: they had the
+    // default ones (the note's source frames).
+    static NoteMatchState noteMatchStateFromJson(const juce::var& json,
+                                                 int defaultStartFrame,
+                                                 int defaultEndFrame);
 
     // Array helpers (compact string format)
     static juce::String floatArrayToString(const std::vector<float>& arr, int precision = 4);
