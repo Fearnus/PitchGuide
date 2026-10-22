@@ -1070,24 +1070,60 @@ void PitchNetAudioProcessor::dispatchLiveCaptureUpdate() {
         state->pending.store(false);
       });
 }
+
+bool PitchNetAudioProcessor::analyzeTakeFile(const juce::File &file) {
+  juce::AudioFormatManager formats;
+  formats.registerBasicFormats();
+  std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+  if (reader == nullptr || reader->lengthInSamples <= 0 ||
+      reader->lengthInSamples > std::numeric_limits<int>::max() ||
+      reader->numChannels == 0)
+    return false;
+
+  const int numSamples = static_cast<int>(reader->lengthInSamples);
+  const int fileChannels = static_cast<int>(reader->numChannels);
+  juce::AudioBuffer<float> fileAudio(fileChannels, numSamples);
+  if (!reader->read(&fileAudio, 0, numSamples, 0, true, true))
+    return false;
+
+  // Playback copies the project channel for channel, so spread a mono file
+  // over the output like a capture of the same take would be.
+  const int channels = std::max(fileChannels, getTotalNumOutputChannels());
+  juce::AudioBuffer<float> take(channels, numSamples);
+  for (int channel = 0; channel < channels; ++channel)
+    take.copyFrom(channel, 0, fileAudio, channel % fileChannels, 0, numSamples);
+
+  if (isCaptureArmed())
+    stopCapture();
+  requestCapturedAudioAnalysis(take, reader->sampleRate, 0.0, true);
+  return true;
+}
+
 void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
     const juce::AudioBuffer<float> &buffer, double sampleRate,
-    double timelineOffsetSeconds) {
+    double timelineOffsetSeconds, bool replaceExisting) {
   if (buffer.getNumSamples() <= 0 || sampleRate <= 0.0)
     return;
 
   // Analysis is asynchronous. Preserve the completed regions now rather than
   // trying to recover them from mutable UI/controller state in the callback.
   std::shared_ptr<Project> previousCapturedProject;
+  ReferenceTrack reference;
   if (mainComponent) {
-    if (auto *current = mainComponent->getProject();
-        current && current->getAudioData().waveform.getNumSamples() > 0)
-      previousCapturedProject = std::make_shared<Project>(*current);
+    if (auto *current = mainComponent->getProject()) {
+      reference = current->getReference();
+      if (current->getAudioData().waveform.getNumSamples() > 0)
+        previousCapturedProject = std::make_shared<Project>(*current);
+    }
   }
   if (!previousCapturedProject && araAnalysisProjectSnapshot &&
       araAnalysisProjectSnapshot->getAudioData().waveform.getNumSamples() > 0)
     previousCapturedProject =
         std::make_shared<Project>(*araAnalysisProjectSnapshot);
+  if (!reference.isLoaded() && araAnalysisProjectSnapshot)
+    reference = araAnalysisProjectSnapshot->getReference();
+  if (replaceExisting)
+    previousCapturedProject.reset();
 
   undoManager->clear();
 
@@ -1118,8 +1154,8 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
           }
         });
       },
-      [this, timelineOffsetSeconds,
-       previousCapturedProject](const juce::AudioBuffer<float> &) {
+      [this, timelineOffsetSeconds, previousCapturedProject,
+       reference](const juce::AudioBuffer<float> &) {
         if (!araAnalysisController)
           return;
 
@@ -1256,6 +1292,15 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
         } else {
           completedProject = std::make_unique<Project>(*analyzedProject);
         }
+        // The reference outlives takes; it is re-aligned below, once the take
+        // sits at its song position. The snapshot was cleared when this
+        // analysis started, so a reference in it was dropped in meanwhile and
+        // is newer than the one captured then.
+        completedProject->getReference() =
+            araAnalysisProjectSnapshot &&
+                    araAnalysisProjectSnapshot->getReference().isLoaded()
+                ? araAnalysisProjectSnapshot->getReference()
+                : reference;
 
         araAnalysisProjectSnapshot =
             std::make_unique<Project>(*completedProject);
@@ -1273,9 +1318,13 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
           // Keep the processor-owned snapshot in the same absolute timeline
           // representation as the UI project for the next capture.
           if (auto *positionedProject = mainComponent->getProject()) {
+            positionedProject->getReference().alignTo(
+                positionedProject->getAudioData());
             araAnalysisProjectSnapshot =
                 std::make_unique<Project>(*positionedProject);
             invalidateAraAnalysisProjectJson();
+            if (auto *view = mainComponent->getComponent())
+              view->repaint();
           }
           if (araAnalysisProjectSnapshot)
             publishPersistentProjectSnapshot(*araAnalysisProjectSnapshot);
@@ -1287,6 +1336,8 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
           // Capture analysis may outlive the editor that started it. Keep
           // headless playback current without doing any project-sized work in
           // processBlock().
+          araAnalysisProjectSnapshot->getReference().alignTo(
+              araAnalysisProjectSnapshot->getAudioData());
           publishPersistentProjectSnapshot(*araAnalysisProjectSnapshot);
           bindRealtimeProcessorHeadless();
         }
@@ -1827,6 +1878,14 @@ std::uint64_t PitchNetAudioProcessor::computePersistentStateKey(
     hashFloats(note.getBakedDeltaPitch());
     hashFloats(note.getF0Values());
   }
+
+  // The reference's arrays are their own binary section too. Its path is in
+  // the metadata, but the same file can be re-exported with new content.
+  const auto &reference = project->getReference();
+  hashFloats(reference.f0);
+  hashFloats(reference.features.cepstra);
+  hashFloats(reference.features.activity);
+  hashFloats(reference.referenceFrameForTakeFrame);
 
   // 0 is the "nothing to cache" sentinel.
   return hash == 0 ? 1 : hash;

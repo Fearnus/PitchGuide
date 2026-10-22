@@ -1136,6 +1136,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
         safeThis->checkForUpdatesOnLaunch();
     });
 
+  addChildComponent(dropOverlay);
+
   LOG("MainComponent: constructor complete");
 }
 
@@ -1452,6 +1454,7 @@ void MainComponent::resized()
     project->uiWidth = getWidth();
     project->uiHeight = getHeight();
   }
+  dropOverlay.setBounds(getLocalBounds());
   auto bounds = getLocalBounds();
 
 #if !JUCE_MAC
@@ -3054,29 +3057,126 @@ void MainComponent::showSettings()
   settingsOverlay->grabKeyboardFocus();
 }
 
-bool MainComponent::isInterestedInFileDrag(const juce::StringArray &files)
+namespace
 {
-  if (isPluginMode())
-    return false;
-
-  for (const auto &file : files)
-  {
-    if (file.endsWithIgnoreCase(".pitchnet") || file.endsWithIgnoreCase(".wav") ||
-        file.endsWithIgnoreCase(".mp3") ||
-        file.endsWithIgnoreCase(".flac") || file.endsWithIgnoreCase(".aiff") ||
-        file.endsWithIgnoreCase(".ogg") || file.endsWithIgnoreCase(".m4a"))
+bool isAudioFileName(const juce::String &file)
+{
+  for (const char *extension : {".wav", ".mp3", ".flac", ".aiff", ".ogg", ".m4a"})
+    if (file.endsWithIgnoreCase(extension))
       return true;
-  }
   return false;
 }
 
-void MainComponent::filesDropped(const juce::StringArray &files, int /*x*/,
-                                 int /*y*/)
+juce::String firstAudioFile(const juce::StringArray &files)
 {
+  for (const auto &file : files)
+    if (isAudioFileName(file))
+      return file;
+  return {};
+}
+} // namespace
+
+bool MainComponent::isInterestedInFileDrag(const juce::StringArray &files)
+{
+  // The plug-in takes audio only, and only where it can analyze a dropped take
+  // (not in ARA mode, where the host provides the audio).
+  if (isPluginMode())
+    return onTakeFileDropped != nullptr && firstAudioFile(files).isNotEmpty();
+
+  for (const auto &file : files)
+    if (file.endsWithIgnoreCase(".pitchnet") || isAudioFileName(file))
+      return true;
+  return false;
+}
+
+void MainComponent::fileDragEnter(const juce::StringArray &files, int x, int y)
+{
+  // A project file just opens; audio can become the reference or the take.
+  const bool projectFile = !isPluginMode() && files.size() > 0 &&
+                           files[0].endsWithIgnoreCase(".pitchnet");
+  if (projectFile || firstAudioFile(files).isEmpty())
+    return;
+  dropOverlay.setHoverPosition({x, y});
+  dropOverlay.setVisible(true);
+  dropOverlay.toFront(false);
+}
+
+void MainComponent::fileDragMove(const juce::StringArray &, int x, int y)
+{
+  if (dropOverlay.isVisible())
+    dropOverlay.setHoverPosition({x, y});
+}
+
+void MainComponent::fileDragExit(const juce::StringArray &)
+{
+  dropOverlay.setVisible(false);
+}
+
+void MainComponent::filesDropped(const juce::StringArray &files, int x, int y)
+{
+  const bool choseTarget = dropOverlay.isVisible();
+  dropOverlay.setVisible(false);
   if (files.isEmpty())
     return;
 
-  openFileFromPath(juce::File(files[0]));
+  if (!choseTarget)
+  {
+    openFileFromPath(juce::File(files[0]));
+    return;
+  }
+
+  const juce::File file(firstAudioFile(files));
+  if (dropOverlay.targetAt({x, y}) == ReferenceDropOverlay::Target::Reference)
+    loadReferenceFile(file);
+  else if (isPluginMode())
+  {
+    if (onTakeFileDropped)
+      onTakeFileDropped(file);
+  }
+  else
+    openFileFromPath(file);
+}
+
+void MainComponent::loadReferenceFile(const juce::File &file)
+{
+  if (!file.existsAsFile())
+    return;
+
+  setStatusMessage(TR("reference.analyzing"));
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  referenceJob = std::make_unique<ReferenceAnalysisJob>(
+      file, [safeThis, name = file.getFileName()](
+                std::optional<ReferenceTrack> reference, juce::String error) {
+        if (safeThis == nullptr)
+          return;
+        safeThis->referenceJob.reset();
+        if (!reference)
+        {
+          LOG("Reference analysis failed: " + error);
+          safeThis->setStatusMessage(TR("reference.failed") + " " + error);
+          return;
+        }
+        safeThis->applyReference(std::move(*reference));
+        safeThis->setStatusMessage(TR("reference.loaded").replace("%1", name));
+      });
+}
+
+void MainComponent::applyReference(ReferenceTrack reference)
+{
+  auto *project = getProject();
+  if (project == nullptr)
+    return;
+
+  // Aligned now if a take is loaded; otherwise when the take arrives.
+  project->getReference() = std::move(reference);
+  project->getReference().alignTo(project->getAudioData());
+  project->setModified(true);
+  pianoRoll.repaint();
+
+  // In the plug-in this hands the project to the processor, which saves it
+  // with the host project.
+  if (onProjectDataChanged)
+    onProjectDataChanged();
 }
 
 void MainComponent::openFileFromPath(const juce::File &file)

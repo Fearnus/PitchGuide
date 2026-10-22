@@ -216,12 +216,20 @@ Features computeFeatures(const std::vector<std::vector<float>>& logMel) {
     features.activity.assign(static_cast<size_t>(numFrames), 0.0f);
     std::vector<float> level(static_cast<size_t>(numFrames), 0.0f);
 
+    std::vector<bool> padding(static_cast<size_t>(numFrames), false);
     for (int frame = 0; frame < numFrames; ++frame) {
         const auto& bands = logMel[static_cast<size_t>(frame)];
         const int usable = std::min(numMels, static_cast<int>(bands.size()));
         float sum = 0.0f;
-        for (int m = 0; m < usable; ++m)
+        bool allZero = true;
+        for (int m = 0; m < usable; ++m) {
             sum += bands[static_cast<size_t>(m)];
+            allZero = allZero && bands[static_cast<size_t>(m)] == 0.0f;
+        }
+        // The editor fills timeline padding and gaps between captures with
+        // empty or all-zero rows. Zero is a loud log level, but no real frame
+        // is exactly zero in every band, so treat these rows as silence.
+        padding[static_cast<size_t>(frame)] = allZero;
         level[static_cast<size_t>(frame)] = usable > 0 ? sum / static_cast<float>(usable) : 0.0f;
 
         float* cepstra = features.cepstra.data() + static_cast<size_t>(frame) * kNumCepstra;
@@ -234,11 +242,19 @@ Features computeFeatures(const std::vector<std::vector<float>>& logMel) {
         }
     }
 
-    const float threshold = percentile(level, kLoudPercentile) - kActivityRange;
+    std::vector<float> recordedLevels;
+    for (int frame = 0; frame < numFrames; ++frame)
+        if (!padding[static_cast<size_t>(frame)])
+            recordedLevels.push_back(level[static_cast<size_t>(frame)]);
+    const float threshold =
+        recordedLevels.empty() ? 0.0f
+                               : percentile(recordedLevels, kLoudPercentile) - kActivityRange;
     for (int frame = 0; frame < numFrames; ++frame)
         features.activity[static_cast<size_t>(frame)] =
-            1.0f / (1.0f + std::exp(-(level[static_cast<size_t>(frame)] - threshold) /
-                                    kActivitySoftness));
+            padding[static_cast<size_t>(frame)]
+                ? 0.0f
+                : 1.0f / (1.0f + std::exp(-(level[static_cast<size_t>(frame)] - threshold) /
+                                          kActivitySoftness));
 
     // Normalize each coefficient over the sung frames, so that a different
     // singer, microphone or room moves the features less than a different

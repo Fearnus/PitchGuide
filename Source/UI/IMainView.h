@@ -100,6 +100,12 @@ public:
   virtual void setOnRequestHostLoopRange(
       std::function<void(double, double, bool, bool)> callback) = 0;
   virtual void setOnRecordArmChanged(std::function<void(bool)> callback) = 0;
+  /**
+   * Called with an audio file dropped onto the take target. Plug-in only;
+   * without a handler the plug-in accepts no dropped files (ARA mode).
+   */
+  virtual void setOnTakeFileDropped(
+      std::function<void(const juce::File &)> callback) = 0;
   virtual void setRecordControlVisible(bool visible) = 0;
   /**
    * Replace the tracks the left side panel lists and mark the active one (an

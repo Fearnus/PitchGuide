@@ -20,6 +20,7 @@ extern const juce::Colour APP_COLOR_PIANO_TEXT_DIM;
 extern const juce::Colour APP_COLOR_TEXT_PRIMARY;
 extern const juce::Colour APP_COLOR_TEXT_MUTED;
 extern const juce::Colour APP_COLOR_PITCH_CURVE;
+extern const juce::Colour APP_COLOR_REFERENCE_CURVE;
 extern const juce::Colour APP_COLOR_NOTE_NORMAL;
 extern const juce::Colour APP_COLOR_NOTE_SELECTED;
 extern const juce::Colour APP_COLOR_NOTE_HOVER;

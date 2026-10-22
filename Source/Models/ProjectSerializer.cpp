@@ -12,7 +12,7 @@
 namespace
 {
 constexpr std::uint32_t kProjectArchiveMagic = 0x504E4152u; // PNAR
-constexpr int kProjectArchiveVersion = 10;
+constexpr int kProjectArchiveVersion = 11;
 constexpr int kProjectArchiveHasOriginalWaveform = 1 << 0;
 constexpr int kProjectArchiveHasMelSpectrogram = 1 << 1;
 constexpr int kProjectArchiveHasRenderedWaveform = 1 << 2;
@@ -226,6 +226,10 @@ juce::var ProjectSerializer::toJson(const Project& project,
     }
     obj->setProperty("notes", notesArray);
 
+    if (project.getReference().isLoaded())
+        obj->setProperty("reference",
+                         referenceToJson(project.getReference(), includePitchData));
+
     if (includePitchData)
         obj->setProperty("pitchData", pitchDataToJson(project.getAudioData()));
     if (includeAnalysisCache) {
@@ -414,6 +418,10 @@ bool ProjectSerializer::fromJson(Project& project, const juce::var& json) {
         }
     }
 
+    // Reference vocal
+    project.getReference() = {};
+    referenceFromJson(project.getReference(), json.getProperty("reference", juce::var()));
+
     // Pitch data
     auto pitchDataVar = json.getProperty("pitchData", juce::var());
     if (pitchDataVar.isObject()) {
@@ -594,7 +602,12 @@ bool ProjectSerializer::toBinaryArchive(const Project& project,
             return false;
     }
 
-    return true;
+    // v11: reference vocal analysis and alignment (all empty without one).
+    const auto& reference = project.getReference();
+    return writeFloatVector(out, reference.f0) &&
+           writeFloatVector(out, reference.features.cepstra) &&
+           writeFloatVector(out, reference.features.activity) &&
+           writeFloatVector(out, reference.referenceFrameForTakeFrame);
 }
 
 bool ProjectSerializer::fromBinaryArchive(Project& project, const void* data,
@@ -763,6 +776,20 @@ bool ProjectSerializer::fromBinaryArchive(Project& project, const void* data,
         }
     }
 
+    if (archiveVersion >= 11) {
+        auto& reference = project.getReference();
+        if (!readFloatVector(in, reference.f0) ||
+            !readFloatVector(in, reference.features.cepstra) ||
+            !readFloatVector(in, reference.features.activity) ||
+            !readFloatVector(in, reference.referenceFrameForTakeFrame))
+            return false;
+        reference.features.numFrames =
+            static_cast<int>(reference.features.activity.size());
+        if (reference.features.cepstra.size() !=
+            reference.features.activity.size() * ReferenceAlignment::kNumCepstra)
+            reference = {};
+    }
+
     if (audioData.baseF0.empty())
         audioData.baseF0 = audioData.f0;
     if (audioData.rawF0.empty()) {
@@ -810,6 +837,47 @@ bool ProjectSerializer::fromBinaryArchive(Project& project, const void* data,
 
     project.setModified(false);
     return true;
+}
+
+juce::var ProjectSerializer::referenceToJson(const ReferenceTrack& reference,
+                                             bool includeArrays) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("path", reference.sourcePath);
+    obj->setProperty("octaveShift", reference.octaveShift);
+    obj->setProperty("matchCost", reference.matchCost);
+    if (includeArrays) {
+        obj->setProperty("f0", floatArrayToString(reference.f0, 2));
+        obj->setProperty("cepstra", floatArrayToString(reference.features.cepstra, 3));
+        obj->setProperty("activity", floatArrayToString(reference.features.activity, 3));
+        obj->setProperty("alignment",
+                         floatArrayToString(reference.referenceFrameForTakeFrame, 2));
+    }
+    return juce::var(obj);
+}
+
+void ProjectSerializer::referenceFromJson(ReferenceTrack& reference,
+                                          const juce::var& json) {
+    if (!json.isObject())
+        return;
+    reference.sourcePath = json.getProperty("path", "").toString();
+    reference.octaveShift = static_cast<int>(json.getProperty("octaveShift", 0));
+    reference.matchCost = static_cast<float>(
+        static_cast<double>(json.getProperty("matchCost", 0.0)));
+    if (!json.hasProperty("f0"))
+        return; // binary archive: the arrays follow as raw buffers
+
+    reference.f0 = stringToFloatArray(json.getProperty("f0", "").toString());
+    reference.features.cepstra =
+        stringToFloatArray(json.getProperty("cepstra", "").toString());
+    reference.features.activity =
+        stringToFloatArray(json.getProperty("activity", "").toString());
+    reference.features.numFrames =
+        static_cast<int>(reference.features.activity.size());
+    reference.referenceFrameForTakeFrame =
+        stringToFloatArray(json.getProperty("alignment", "").toString());
+    if (reference.features.cepstra.size() !=
+        reference.features.activity.size() * ReferenceAlignment::kNumCepstra)
+        reference = {};
 }
 
 juce::var ProjectSerializer::noteToJson(const Note& note,

@@ -292,6 +292,7 @@ private:
   void drawLoopTimeline(juce::Graphics &g);
   void drawNotes(juce::Graphics &g, NoteRenderPass pass);
   void drawPitchCurves(juce::Graphics &g);
+  void drawReferenceCurve(juce::Graphics &g);
   void drawPianoKeys(juce::Graphics &g);
   void drawSelectionRect(juce::Graphics &g); // Box selection rectangle
   void drawAudioSourceRegionOverlay(juce::Graphics &g);

@@ -10,12 +10,10 @@
 // timestamp. Real takes have no ground truth, so this is the accuracy check.
 
 #include "../Source/Audio/Alignment/ReferenceAlignment.h"
-#include "../Source/Audio/FCPEPitchDetector.h"
-#include "../Source/Utils/AudioResampler.h"
+#include "../Source/Audio/ReferenceAnalyzer.h"
 #include "../Source/Utils/Constants.h"
 #include "../Source/Utils/MelSpectrogram.h"
 #include "../Source/Utils/OnnxRuntime.h"
-#include "../Source/Utils/PlatformPaths.h"
 
 #include <algorithm>
 #include <chrono>
@@ -28,49 +26,10 @@
 
 namespace {
 
-// Mono mix at the analysis sample rate.
-std::optional<std::vector<float>> loadMono(const juce::File& file) {
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
-    if (reader == nullptr || reader->lengthInSamples <= 0)
-        return std::nullopt;
-
-    const int numSamples = static_cast<int>(reader->lengthInSamples);
-    const int numChannels = static_cast<int>(reader->numChannels);
-    juce::AudioBuffer<float> buffer(numChannels, numSamples);
-    reader->read(&buffer, 0, numSamples, 0, true, true);
-
-    juce::AudioBuffer<float> mono(1, numSamples);
-    mono.clear();
-    for (int channel = 0; channel < numChannels; ++channel)
-        mono.addFrom(0, 0, buffer, channel, 0, numSamples, 1.0f / static_cast<float>(numChannels));
-
-    if (static_cast<int>(reader->sampleRate) != SAMPLE_RATE)
-        mono = AudioResampler::resample(mono, reader->sampleRate, SAMPLE_RATE);
-
-    const float* samples = mono.getReadPointer(0);
-    return std::vector<float>(samples, samples + mono.getNumSamples());
-}
-
 ReferenceAlignment::Features analyze(const std::vector<float>& audio) {
     MelSpectrogram mel;
     return ReferenceAlignment::computeFeatures(
         mel.compute(audio.data(), static_cast<int>(audio.size())));
-}
-
-// F0 in Hz on the analysis frame grid, 0 where unvoiced.
-std::vector<float> detectPitch(FCPEPitchDetector& fcpe, const std::vector<float>& audio,
-                               int numFrames) {
-    const auto raw = fcpe.extractF0(audio.data(), static_cast<int>(audio.size()), SAMPLE_RATE);
-    constexpr double fcpeFrameSeconds =
-        double(FCPEPitchDetector::HOP_SIZE) / FCPEPitchDetector::FCPE_SAMPLE_RATE;
-    std::vector<float> f0(static_cast<size_t>(numFrames), 0.0f);
-    for (int frame = 0; frame < numFrames && !raw.empty(); ++frame) {
-        const auto index = static_cast<size_t>(std::lround(framesToSeconds(frame) / fcpeFrameSeconds));
-        f0[static_cast<size_t>(frame)] = raw[std::min(index, raw.size() - 1)];
-    }
-    return f0;
 }
 
 float referencePitchAt(const std::vector<float>& referenceF0, float frame) {
@@ -125,16 +84,16 @@ int main(int argc, char* argv[]) {
 
     const juce::File referenceFile = juce::File::getCurrentWorkingDirectory().getChildFile(argv[1]);
     const juce::File takeFile = juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]);
-    const auto referenceAudio = loadMono(referenceFile);
-    const auto takeAudio = loadMono(takeFile);
-    if (!referenceAudio || !takeAudio) {
+    const auto referenceAudio = ReferenceAnalyzer::loadMono(referenceFile);
+    const auto takeAudio = ReferenceAnalyzer::loadMono(takeFile);
+    if (referenceAudio.empty() || takeAudio.empty()) {
         std::fprintf(stderr, "could not read %s\n",
-                     (!referenceAudio ? referenceFile : takeFile).getFullPathName().toRawUTF8());
+                     (referenceAudio.empty() ? referenceFile : takeFile).getFullPathName().toRawUTF8());
         return 1;
     }
 
-    const auto reference = analyze(*referenceAudio);
-    const auto take = analyze(*takeAudio);
+    const auto reference = analyze(referenceAudio);
+    const auto take = analyze(takeAudio);
 
     const auto started = std::chrono::steady_clock::now();
     const auto result = ReferenceAlignment::align(take, reference);
@@ -153,13 +112,12 @@ int main(int argc, char* argv[]) {
     std::printf("alignment took %.1f ms\n", elapsed);
 
     std::vector<float> takeF0, referenceF0;
-    FCPEPitchDetector fcpe;
-    if (OnnxRuntime::initialise() &&
-        fcpe.loadModel(PlatformPaths::getModelFile("fcpe.onnx"),
-                       PlatformPaths::getModelFile("mel_filterbank.bin"),
-                       PlatformPaths::getModelFile("cent_table.bin"))) {
-        takeF0 = detectPitch(fcpe, *takeAudio, take.numFrames);
-        referenceF0 = detectPitch(fcpe, *referenceAudio, reference.numFrames);
+    juce::String pitchError;
+    if (OnnxRuntime::initialise(&pitchError))
+        takeF0 = ReferenceAnalyzer::detectPitch(takeAudio, take.numFrames, pitchError);
+    if (!takeF0.empty())
+        referenceF0 = ReferenceAnalyzer::detectPitch(referenceAudio, reference.numFrames, pitchError);
+    if (!referenceF0.empty()) {
 
         const auto aligned = [&](size_t frame) { return result.referenceFrame[frame]; };
         const auto sameTime = [](size_t frame) { return static_cast<float>(frame); };
@@ -176,7 +134,9 @@ int main(int argc, char* argv[]) {
                     100.0f * withoutAlignment.withinOne, 100.0f * withoutAlignment.withinHalf,
                     withoutAlignment.frames);
     } else {
-        std::printf("pitch          skipped (FCPE model files not found; run from the repository root)\n");
+        takeF0.clear();
+        std::printf("pitch          skipped (%s; run from the repository root)\n",
+                    pitchError.toRawUTF8());
     }
 
     if (argc == 4) {

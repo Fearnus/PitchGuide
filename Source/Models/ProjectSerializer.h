@@ -90,6 +90,11 @@ private:
     static juce::var melSpectrogramToJson(const std::vector<std::vector<float>>& mel);
     static bool melSpectrogramFromJson(std::vector<std::vector<float>>& mel, const juce::var& json);
 
+    // Reference vocal. The analysis arrays go into the JSON only with
+    // `includeArrays`; binary archives carry them as raw buffers instead.
+    static juce::var referenceToJson(const ReferenceTrack& reference, bool includeArrays);
+    static void referenceFromJson(ReferenceTrack& reference, const juce::var& json);
+
     // Array helpers (compact string format)
     static juce::String floatArrayToString(const std::vector<float>& arr, int precision = 4);
     static std::vector<float> stringToFloatArray(const juce::String& str);
