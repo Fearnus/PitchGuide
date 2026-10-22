@@ -123,6 +123,9 @@ public:
 
   // Analyzes `file` and guides the current take (and later ones) towards it.
   void loadReferenceFile(const juce::File &file);
+  // Opens the Match Reference popup, or says why it cannot.
+  void openMatchReference();
+  void removeReference();
 
   // Opens a project or audio file chosen outside the UI (command line, file
   // manager). Ignored in plugin mode and for files that no longer exist.

@@ -17,6 +17,8 @@ ToolbarComponent::ToolbarComponent()
     stopButton.setImage(loadImage(BinaryData::stop_png, BinaryData::stop_pngSize));
     loopButton.setImage(loadImage(BinaryData::cycle_png, BinaryData::cycle_pngSize));
     quantizeButton.setImage(loadImage(BinaryData::quantize_png, BinaryData::quantize_pngSize));
+    matchReferenceButton.setImage(loadImage(BinaryData::match_png, BinaryData::match_pngSize));
+    matchReferenceButton.setEnabled(false);
     auditionButton.setImage(loadImage(BinaryData::audition_png, BinaryData::audition_pngSize));
     undoButton.setImage(loadImage(BinaryData::undo_png, BinaryData::undo_pngSize));
     redoButton.setImage(loadImage(BinaryData::redo_png, BinaryData::redo_pngSize));
@@ -44,6 +46,7 @@ ToolbarComponent::ToolbarComponent()
     addAndMakeVisible(followButton);
     addAndMakeVisible(scaleSelectionButton);
     addAndMakeVisible(quantizeButton);
+    addAndMakeVisible(matchReferenceButton);
     addAndMakeVisible(auditionButton);
     addAndMakeVisible(undoButton);
     addAndMakeVisible(redoButton);
@@ -61,6 +64,7 @@ ToolbarComponent::ToolbarComponent()
     timingModeButton.addListener(this);
     followButton.addListener(this);
     quantizeButton.addListener(this);
+    matchReferenceButton.addListener(this);
     auditionButton.addListener(this);
     undoButton.addListener(this);
     redoButton.addListener(this);
@@ -246,10 +250,14 @@ void ToolbarComponent::resized()
                              capsuleY + (capsuleH - rightButtonSize) / 2,
                              rightButtonSize, rightButtonSize);
 
+    matchReferenceButton.setBounds(quantizeButton.getX() - rightButtonSize - 2,
+                                   capsuleY + (capsuleH - rightButtonSize) / 2,
+                                   rightButtonSize, rightButtonSize);
+
     const int scaleButtonWidth = scaleSelectionButton.getPreferredWidth();
     constexpr int scaleQuantizeGap = 11;
     scaleSelectionButton.setBounds(
-        quantizeButton.getX() - scaleQuantizeGap - scaleButtonWidth,
+        matchReferenceButton.getX() - scaleQuantizeGap - scaleButtonWidth,
         capsuleY + (capsuleH - 26) / 2,
         scaleButtonWidth, 26);
 
@@ -371,6 +379,7 @@ void ToolbarComponent::refreshLocalisedText()
     timingModeButton.setTooltip(TR("tooltip.timing_tool"));
     followButton.setTooltip(TR("tooltip.auto_scroll"));
     quantizeButton.setTooltip(TR("tooltip.quantize_macro"));
+    matchReferenceButton.setTooltip(TR("tooltip.match_reference"));
     auditionButton.setTooltip(TR("tooltip.live_audition"));
     recordButton.setTooltip(TR("tooltip.capture"));
     playButton.setTooltip(TR("toolbar.play"));
@@ -456,6 +465,11 @@ void ToolbarComponent::buttonClicked(juce::Button *button)
     {
         if (onCorrectPitchCenter)
             onCorrectPitchCenter();
+    }
+    else if (button == &matchReferenceButton)
+    {
+        if (onMatchReference)
+            onMatchReference();
     }
     else if (button == &undoButton && onUndo)
         onUndo();
@@ -628,6 +642,12 @@ void ToolbarComponent::setUndoRedoEnabled(bool undoEnabled, bool redoEnabled)
 {
     undoButton.setEnabled(undoEnabled);
     redoButton.setEnabled(redoEnabled);
+}
+
+void ToolbarComponent::setMatchReferenceEnabled(bool enabled)
+{
+    if (matchReferenceButton.isEnabled() != enabled)
+        matchReferenceButton.setEnabled(enabled);
 }
 
 void ToolbarComponent::showProgress(const juce::String &message)

@@ -3,7 +3,9 @@
 #include "../Utils/Constants.h"
 #include "../Utils/Localization.h"
 #include "BinaryData.h"
+#include "Dialogs/MatchReferenceDialog.h"
 #include "Dialogs/QuantizePitchDialog.h"
+#include "../Undo/ReferenceMatchAction.h"
 #include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/ScaleUtils.h"
 #include "../Utils/PitchMacroScope.h"
@@ -307,6 +309,70 @@ void PianoRollWorkspaceView::setProject(Project *project)
 void PianoRollWorkspaceView::dismissPitchCenterPopup()
 {
   QuantizePitchDialog::dismissPopup();
+  MatchReferenceDialog::dismissPopup();
+}
+
+bool PianoRollWorkspaceView::showMatchReferencePopup()
+{
+  dismissPitchCenterPopup();
+  auto *project = pianoRoll.getProject();
+  if (project == nullptr || !project->getReference().isAligned())
+    return false;
+
+  auto notes = project->getSelectedNotes();
+  if (notes.empty())
+    for (auto &note : project->getNotes())
+      if (!note.isRest())
+        notes.push_back(&note);
+  if (notes.empty())
+    return false;
+
+  // Every preview starts again from these states, and Cancel returns to them.
+  const auto original = std::make_shared<std::vector<ReferenceMatch::NoteState>>(
+      ReferenceMatch::capture(notes));
+  auto safeThis = juce::Component::SafePointer<PianoRollWorkspaceView>(this);
+  const auto showCurves = [safeThis] {
+    if (!safeThis) return;
+    safeThis->pianoRoll.invalidateBasePitchCache();
+    safeThis->pianoRoll.repaint();
+    safeThis->refreshOverview();
+  };
+  const auto render = [safeThis] {
+    if (!safeThis) return;
+    if (safeThis->pianoRoll.onPitchEdited) safeThis->pianoRoll.onPitchEdited();
+    if (safeThis->pianoRoll.onPitchPreviewRenderRequested)
+      safeThis->pianoRoll.onPitchPreviewRenderRequested();
+  };
+
+  const auto anchor = juce::Rectangle<int>(pianoCard.getRight(), pianoCard.getY(), 0, 0);
+  MatchReferenceDialog::showPopup(this, anchor,
+      [project, original, showCurves](const ReferenceMatch::Settings &settings) {
+        ReferenceMatch::apply(*project, *original, settings);
+        showCurves();
+      },
+      [safeThis, project, original, showCurves, render](bool accepted) {
+        if (!safeThis) return;
+        if (!accepted) {
+          ReferenceMatch::restore(*project, *original);
+          showCurves();
+          render(); // Replace any auditioned audio with the original.
+          return;
+        }
+        // The last preview already requested the final audio; record history.
+        project->setModified(true);
+        if (safeThis->pianoRoll.onPitchEditCommitted)
+          safeThis->pianoRoll.onPitchEditCommitted();
+        if (auto *undo = safeThis->pianoRoll.getUndoManager())
+          undo->addAction(std::make_unique<ReferenceMatchAction>(
+              project, *original, ReferenceMatch::capture([&original] {
+                std::vector<Note *> matched;
+                for (const auto &state : *original)
+                  matched.push_back(state.note);
+                return matched;
+              }())));
+      },
+      render);
+  return true;
 }
 
 void PianoRollWorkspaceView::showPitchCenterPopup()
