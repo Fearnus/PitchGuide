@@ -3,9 +3,11 @@
 #include <cmath>
 #include <cstddef>
 
-NotePitchState NotePitchState::of(const Note &note)
+NoteMatchState NoteMatchState::of(const Note &note)
 {
-    NotePitchState state;
+    NoteMatchState state;
+    state.startFrame = note.getStartFrame();
+    state.endFrame = note.getEndFrame();
     state.midiNote = note.getMidiNote();
     state.lastNonMacroMidiNote = note.getLastNonMacroMidiNote();
     state.tiltLeft = note.getTiltLeft();
@@ -20,7 +22,7 @@ NotePitchState NotePitchState::of(const Note &note)
     return state;
 }
 
-void NotePitchState::applyTo(Note &note) const
+void NoteMatchState::applyPitchTo(Note &note) const
 {
     note.setMidiNote(midiNote);
     note.setLastNonMacroMidiNote(lastNonMacroMidiNote);
@@ -35,10 +37,11 @@ void NotePitchState::applyTo(Note &note) const
     note.setBakedDeltaPitch(bakedDeltaPitch);
 }
 
-bool NotePitchState::isCloseTo(const NotePitchState &other, float tolerance) const
+bool NoteMatchState::isCloseTo(const NoteMatchState &other, float tolerance) const
 {
     const auto close = [tolerance](float a, float b) { return std::abs(a - b) <= tolerance; };
-    if (!close(midiNote, other.midiNote) ||
+    if (startFrame != other.startFrame || endFrame != other.endFrame ||
+        !close(midiNote, other.midiNote) ||
         !close(lastNonMacroMidiNote, other.lastNonMacroMidiNote) ||
         !close(tiltLeft, other.tiltLeft) || !close(tiltRight, other.tiltRight) ||
         !close(vibrato, other.vibrato) || !close(pitchDrift, other.pitchDrift) ||
@@ -53,10 +56,10 @@ bool NotePitchState::isCloseTo(const NotePitchState &other, float tolerance) con
     return true;
 }
 
-const NotePitchState *ReferenceMatchMemory::pitchBeforeMatching(const Note &note) const
+const NoteMatchState *ReferenceMatchMemory::stateBeforeMatching(const Note &note) const
 {
     for (const auto &entry : entries)
-        if (entry.startFrame == note.getStartFrame() && entry.endFrame == note.getEndFrame())
-            return entry.after.isCloseTo(NotePitchState::of(note)) ? &entry.before : nullptr;
+        if (entry.isFor(note))
+            return entry.after.isCloseTo(NoteMatchState::of(note)) ? &entry.before : nullptr;
     return nullptr;
 }

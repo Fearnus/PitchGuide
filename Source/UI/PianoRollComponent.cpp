@@ -5,6 +5,7 @@
 #include "../Undo/AmplitudeAction.h"
 #include "../Utils/BasePitchCurve.h"
 #include "../Utils/CurveResampler.h"
+#include "../Utils/TakeTimeline.h"
 #include "../Utils/Constants.h"
 #include "../Utils/Localization.h"
 #include "../Utils/UI/TimecodeFont.h"
@@ -1534,6 +1535,8 @@ void PianoRollComponent::drawReferenceCurve(juce::Graphics &g)
       pixelsPerSecond <= 0.0f)
     return;
   const auto &reference = project->getReference();
+  // The reference follows the take as sung, wherever timing edits moved it.
+  const TakeTimeline timeline(project->getNotes());
 
   // Only frames that can reach the viewport; coordinates are world space.
   const double framesPerPixel =
@@ -1541,7 +1544,7 @@ void PianoRollComponent::drawReferenceCurve(juce::Graphics &g)
   const int firstFrame =
       std::max(0, static_cast<int>(std::floor(scrollX * framesPerPixel)) - 1);
   const int endFrame = std::min(
-      static_cast<int>(reference.referenceFrameForTakeFrame.size()),
+      project->getAudioData().getNumFrames(),
       static_cast<int>(std::ceil((scrollX + getWidth()) * framesPerPixel)) + 1);
 
   g.setColour(APP_COLOR_REFERENCE_CURVE.withAlpha(0.8f));
@@ -1558,7 +1561,8 @@ void PianoRollComponent::drawReferenceCurve(juce::Graphics &g)
 
   for (int frame = firstFrame; frame < endFrame; ++frame)
   {
-    const float midi = reference.targetMidiAt(frame);
+    const float midi = reference.targetMidiAt(static_cast<int>(
+        std::lround(timeline.sourceFrameAt(static_cast<float>(frame)))));
     if (midi <= 0.0f)
     {
       strokePath();

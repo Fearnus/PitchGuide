@@ -185,6 +185,7 @@
   "reference.failed": "无法使用参考人声：",
   "match.note_pitch": "音符音高",
   "match.expression": "表现力",
+  "match.timing": "节奏",
   "match.transpose": "移调",
   "tooltip.match_reference": "匹配参考人声",
   "reference.none": "请先拖入参考人声",

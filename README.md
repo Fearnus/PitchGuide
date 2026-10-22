@@ -41,8 +41,9 @@ PitchGuide is being reworked step by step from the PitchNet codebase:
 1. Rebrand and working CI (done).
 2. Time-align a new take to an isolated reference vocal (done).
 3. Drop in a reference and a take; show the reference pitch over the take (done).
-4. "Match reference" pitch correction in the editor (pitch done; timing next).
-5. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
+4. "Match reference" correction in the editor: pitch, expression and timing (done).
+5. Drag the corrected take out of the plug-in into the DAW as audio.
+6. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
 
 ## Features
 
@@ -201,6 +202,10 @@ or on every note when none is selected, and previews as you change:
   reference sings over it.
 - **Expression** (default 0%): blends the note's slides and vibrato toward the
   reference's, around the note's new centre.
+- **Timing** (default 0%): moves each note's start and end toward where the
+  reference sings them, so a late or rushed line lands on the reference's
+  timing. Notes never overlap, and the breaths before and after each phrase
+  move with it, as with the Timing tool.
 - **Transpose** (-12 to +12 semitones): added on top of the automatic octave
   shift, for singing the part in another range.
 

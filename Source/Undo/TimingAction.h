@@ -22,8 +22,11 @@ struct NoteTimingState
     }
 };
 
-inline void applyNoteTimingStates(Project& project,
-                                  const std::vector<NoteTimingState>& states)
+// Moves the notes to the given frames, rebuilds the pitch curves and marks
+// what moved for resynthesis (with the unpitched audio a region's first or
+// last note carries). Returns whether any note moved.
+inline bool applyNoteTiming(Project& project,
+                            const std::vector<NoteTimingState>& states)
 {
     int dirtyStart = std::numeric_limits<int>::max();
     int dirtyEnd = std::numeric_limits<int>::min();
@@ -82,12 +85,18 @@ inline void applyNoteTimingStates(Project& project,
     }
 
     PitchCurveProcessor::rebuildBaseFromNotes(project);
-    if (dirtyStart <= dirtyEnd)
-    {
-        const int frameCount = project.getAudioData().getNumFrames();
-        project.setF0DirtyRange(std::max(0, dirtyStart - 24),
-                                std::min(frameCount, dirtyEnd + 24));
-    }
+    if (dirtyStart > dirtyEnd)
+        return false;
+    const int frameCount = project.getAudioData().getNumFrames();
+    project.setF0DirtyRange(std::max(0, dirtyStart - 24),
+                            std::min(frameCount, dirtyEnd + 24));
+    return true;
+}
+
+inline void applyNoteTimingStates(Project& project,
+                                  const std::vector<NoteTimingState>& states)
+{
+    applyNoteTiming(project, states);
     project.setModified(true);
 }
 

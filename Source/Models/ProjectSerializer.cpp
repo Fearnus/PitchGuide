@@ -916,13 +916,14 @@ juce::var ProjectSerializer::referenceMatchToJson(const ReferenceMatchMemory& me
     obj->setProperty("notePitch", memory.settings.notePitch);
     obj->setProperty("expression", memory.settings.expression);
     obj->setProperty("transpose", memory.settings.transpose);
+    obj->setProperty("timing", memory.settings.timing);
     juce::Array<juce::var> entries;
     for (const auto& entry : memory.entries) {
         auto* entryObj = new juce::DynamicObject();
-        entryObj->setProperty("start", entry.startFrame);
-        entryObj->setProperty("end", entry.endFrame);
-        entryObj->setProperty("before", notePitchStateToJson(entry.before, includeContours));
-        entryObj->setProperty("after", notePitchStateToJson(entry.after, includeContours));
+        entryObj->setProperty("srcStart", entry.srcStartFrame);
+        entryObj->setProperty("srcEnd", entry.srcEndFrame);
+        entryObj->setProperty("before", noteMatchStateToJson(entry.before, includeContours));
+        entryObj->setProperty("after", noteMatchStateToJson(entry.after, includeContours));
         entries.add(juce::var(entryObj));
     }
     obj->setProperty("notes", entries);
@@ -939,21 +940,30 @@ void ProjectSerializer::referenceMatchFromJson(ReferenceMatchMemory& memory,
     memory.settings.notePitch = number("notePitch", 1.0);
     memory.settings.expression = number("expression", 0.0);
     memory.settings.transpose = number("transpose", 0.0);
+    memory.settings.timing = number("timing", 0.0);
     if (const auto* entries = json.getProperty("notes", juce::var()).getArray()) {
         for (const auto& entryVar : *entries) {
+            // Projects saved before timing matching keyed notes by "start" and
+            // "end", which were their source frames as no timing had moved them.
             ReferenceMatchMemory::Entry entry;
-            entry.startFrame = static_cast<int>(entryVar.getProperty("start", 0));
-            entry.endFrame = static_cast<int>(entryVar.getProperty("end", 0));
-            entry.before = notePitchStateFromJson(entryVar.getProperty("before", juce::var()));
-            entry.after = notePitchStateFromJson(entryVar.getProperty("after", juce::var()));
+            entry.srcStartFrame = static_cast<int>(
+                entryVar.getProperty("srcStart", entryVar.getProperty("start", 0)));
+            entry.srcEndFrame = static_cast<int>(
+                entryVar.getProperty("srcEnd", entryVar.getProperty("end", 0)));
+            entry.before = noteMatchStateFromJson(entryVar.getProperty("before", juce::var()),
+                                                  entry.srcStartFrame, entry.srcEndFrame);
+            entry.after = noteMatchStateFromJson(entryVar.getProperty("after", juce::var()),
+                                                 entry.srcStartFrame, entry.srcEndFrame);
             memory.entries.push_back(std::move(entry));
         }
     }
 }
 
-juce::var ProjectSerializer::notePitchStateToJson(const NotePitchState& state,
+juce::var ProjectSerializer::noteMatchStateToJson(const NoteMatchState& state,
                                                   bool includeContour) {
     auto* obj = new juce::DynamicObject();
+    obj->setProperty("startFrame", state.startFrame);
+    obj->setProperty("endFrame", state.endFrame);
     obj->setProperty("midiNote", state.midiNote);
     obj->setProperty("lastNonMacroMidiNote", state.lastNonMacroMidiNote);
     obj->setProperty("tiltLeft", state.tiltLeft);
@@ -969,8 +979,12 @@ juce::var ProjectSerializer::notePitchStateToJson(const NotePitchState& state,
     return juce::var(obj);
 }
 
-NotePitchState ProjectSerializer::notePitchStateFromJson(const juce::var& json) {
-    NotePitchState state;
+NoteMatchState ProjectSerializer::noteMatchStateFromJson(const juce::var& json,
+                                                         int defaultStartFrame,
+                                                         int defaultEndFrame) {
+    NoteMatchState state;
+    state.startFrame = static_cast<int>(json.getProperty("startFrame", defaultStartFrame));
+    state.endFrame = static_cast<int>(json.getProperty("endFrame", defaultEndFrame));
     const auto number = [&json](const char* name, double fallback) {
         return static_cast<float>(static_cast<double>(json.getProperty(name, fallback)));
     };
