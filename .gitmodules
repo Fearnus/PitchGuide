@@ -1,7 +1,9 @@
 [submodule "third_party/JUCE"]
 	path = third_party/JUCE
-	url = https://github.com/SessionLoops/JUCE.git
-	branch = master
+	url = https://github.com/juce-framework/JUCE.git
+	# Pinned to the 8.0.14 release; CMake applies third_party/patches on top,
+	# which leaves the checkout modified.
+	ignore = dirty
 [submodule "third_party/ARA_SDK"]
 	path = third_party/ARA_SDK
 	url = https://github.com/Celemony/ARA_SDK

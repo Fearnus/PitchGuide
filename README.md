@@ -107,6 +107,11 @@ Other runtime assets live in `Resources/lang` and `Resources/fonts`.
 git submodule update --init --recursive
 ```
 
+JUCE is the official 8.0.14 release; CMake applies
+`third_party/patches/juce-8.0.14.patch` to it when it configures. A checkout
+made while the submodule still pointed at the Session Loops fork needs
+`git submodule sync` before the update.
+
 ### Configure
 
 ```bash
@@ -231,7 +236,8 @@ PitchGuide/
     fonts/        # UI fonts
     svg/          # Toolbar icons
   third_party/
-    JUCE/             # JUCE framework (submodule)
+    JUCE/             # JUCE 8.0.14 (submodule, official release)
+    patches/          # Changes CMake applies to JUCE when configuring
     ARA_SDK/          # ARA SDK (submodule, optional)
     r8brain-free-src/ # High-quality audio resampler (submodule)
   CMakeLists.txt
