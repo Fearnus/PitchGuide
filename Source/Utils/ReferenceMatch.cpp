@@ -15,42 +15,64 @@ std::vector<NoteState> capture(const std::vector<Note *> &notes)
     states.reserve(notes.size());
     for (auto *note : notes)
         if (note != nullptr)
-            states.push_back({note, TransformParams::fromNote(*note),
-                              note->getBakedDeltaPitch(),
-                              note->getLastNonMacroMidiNote()});
+            states.push_back({note, NotePitchState::of(*note)});
+    return states;
+}
+
+std::vector<NoteState> bases(const Project &project, const std::vector<Note *> &notes)
+{
+    auto states = capture(notes);
+    const auto &memory = project.getReferenceMatch();
+    for (auto &state : states)
+        if (const auto *before = memory.pitchBeforeMatching(*state.note))
+            state.pitch = *before;
     return states;
 }
 
 namespace
 {
-// Notes keep their frames while matching, so this covers every curve change.
-void markChanged(Project &project, const std::vector<NoteState> &states)
+std::vector<NotePitchState> currentPitch(const std::vector<NoteState> &states)
 {
-    int first = std::numeric_limits<int>::max(), last = -1;
+    std::vector<NotePitchState> pitch;
+    pitch.reserve(states.size());
     for (const auto &state : states)
-    {
-        first = std::min(first, state.note->getStartFrame());
-        last = std::max(last, state.note->getEndFrame());
-    }
-    project.markNoteEditDirtyRange(first, last);
+        pitch.push_back(NotePitchState::of(*state.note));
+    return pitch;
 }
 
-void putBack(const NoteState &state)
+// Marks the notes whose pitch is no longer `previous` for resynthesis, and
+// returns how many changed by more than the saved precision: a project
+// reloaded from JSON rematches only to within it, which is not worth a
+// render or an undo step. Notes keep their frames while matching.
+int markChanged(Project &project, const std::vector<NoteState> &states,
+                const std::vector<NotePitchState> &previous)
 {
-    state.params.applyToNote(*state.note);
-    state.note->setLastNonMacroMidiNote(state.lastNonMacroMidiNote);
-    state.note->setBakedDeltaPitch(state.bakedDeltaPitch);
-    state.note->markDirty();
-    state.note->markSynthDirty();
+    int first = std::numeric_limits<int>::max(), last = -1, changed = 0;
+    for (size_t i = 0; i < states.size(); ++i)
+    {
+        auto *note = states[i].note;
+        const auto now = NotePitchState::of(*note);
+        if (now.isCloseTo(previous[i], 0.0f))
+            continue;
+        note->markDirty();
+        note->markSynthDirty();
+        first = std::min(first, note->getStartFrame());
+        last = std::max(last, note->getEndFrame());
+        if (!now.isCloseTo(previous[i]))
+            ++changed;
+    }
+    project.markNoteEditDirtyRange(first, last);
+    return changed;
 }
 } // namespace
 
-void restore(Project &project, const std::vector<NoteState> &states)
+int restore(Project &project, const std::vector<NoteState> &states)
 {
+    const auto previous = currentPitch(states);
     for (const auto &state : states)
-        putBack(state);
+        state.pitch.applyTo(*state.note);
     PitchCurveProcessor::rebuildBaseFromNotes(project);
-    markChanged(project, states);
+    return markChanged(project, states, previous);
 }
 
 std::optional<float> referencePitchOver(const ReferenceTrack &reference,
@@ -71,11 +93,12 @@ std::optional<float> referencePitchOver(const ReferenceTrack &reference,
     return *middle + transpose;
 }
 
-int apply(Project &project, const std::vector<NoteState> &original,
-          const Settings &settings)
+Outcome apply(Project &project, const std::vector<NoteState> &bases,
+              const Settings &settings)
 {
-    for (const auto &state : original)
-        putBack(state);
+    const auto previous = currentPitch(bases);
+    for (const auto &base : bases)
+        base.pitch.applyTo(*base.note);
 
     const auto &reference = project.getReference();
     struct Matched
@@ -86,9 +109,9 @@ int apply(Project &project, const std::vector<NoteState> &original,
     std::vector<Matched> matched;
     if (reference.isAligned())
     {
-        for (const auto &state : original)
+        for (const auto &base : bases)
         {
-            auto *note = state.note;
+            auto *note = base.note;
             if (note->isRest())
                 continue;
             const auto target = referencePitchOver(
@@ -96,8 +119,8 @@ int apply(Project &project, const std::vector<NoteState> &original,
             if (!target)
                 continue;
             matched.push_back({note, *target});
-            note->setMidiNote(state.params.midiNote +
-                              settings.notePitch * (*target - state.params.midiNote));
+            note->setMidiNote(base.pitch.midiNote +
+                              settings.notePitch * (*target - base.pitch.midiNote));
         }
     }
     PitchCurveProcessor::rebuildBaseFromNotes(project);
@@ -141,7 +164,47 @@ int apply(Project &project, const std::vector<NoteState> &original,
         }
         PitchCurveProcessor::rebuildBaseFromNotes(project);
     }
-    markChanged(project, original);
-    return static_cast<int>(matched.size());
+
+    Outcome outcome;
+    outcome.matched = static_cast<int>(matched.size());
+    outcome.changed = markChanged(project, bases, previous);
+    return outcome;
+}
+
+void remember(Project &project, const std::vector<NoteState> &bases,
+              const Settings &settings)
+{
+    auto &memory = project.getReferenceMatch();
+    memory.settings = settings;
+    auto &entries = memory.entries;
+    for (const auto &base : bases)
+    {
+        const auto &note = *base.note;
+        const auto existing = std::find_if(entries.begin(), entries.end(), [&note](const auto &entry) {
+            return entry.startFrame == note.getStartFrame() && entry.endFrame == note.getEndFrame();
+        });
+        auto now = NotePitchState::of(note);
+        if (now.isCloseTo(base.pitch))
+        {
+            // Not matched (anymore): it starts from its current pitch anyway.
+            if (existing != entries.end())
+                entries.erase(existing);
+            continue;
+        }
+        ReferenceMatchMemory::Entry entry{note.getStartFrame(), note.getEndFrame(),
+                                          base.pitch, std::move(now)};
+        if (existing != entries.end())
+            *existing = std::move(entry);
+        else
+            entries.push_back(std::move(entry));
+    }
+
+    // Forget notes that were deleted, split or merged since they were matched.
+    const auto &notes = project.getNotes();
+    entries.erase(std::remove_if(entries.begin(), entries.end(), [&notes](const auto &entry) {
+        return std::none_of(notes.begin(), notes.end(), [&entry](const Note &note) {
+            return note.getStartFrame() == entry.startFrame && note.getEndFrame() == entry.endFrame;
+        });
+    }), entries.end());
 }
 } // namespace ReferenceMatch

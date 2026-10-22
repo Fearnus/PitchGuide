@@ -327,9 +327,22 @@ bool PianoRollWorkspaceView::showMatchReferencePopup()
   if (notes.empty())
     return false;
 
-  // Every preview starts again from these states, and Cancel returns to them.
-  const auto original = std::make_shared<std::vector<ReferenceMatch::NoteState>>(
-      ReferenceMatch::capture(notes));
+  // Opening changes nothing. Every preview starts again from each note's
+  // pitch before an earlier match still in place (else its current pitch), so
+  // reopening adjusts that match rather than stacking a new one on top.
+  // Cancel returns to how the notes were when the popup opened.
+  struct Session
+  {
+    std::vector<ReferenceMatch::NoteState> opened;
+    std::vector<ReferenceMatch::NoteState> bases;
+    ReferenceMatch::Settings settings;
+    bool renderPending = false;
+  };
+  const auto session = std::make_shared<Session>();
+  session->opened = ReferenceMatch::capture(notes);
+  session->bases = ReferenceMatch::bases(*project, notes);
+  session->settings = project->getReferenceMatch().settings;
+
   auto safeThis = juce::Component::SafePointer<PianoRollWorkspaceView>(this);
   const auto showCurves = [safeThis] {
     if (!safeThis) return;
@@ -343,35 +356,64 @@ bool PianoRollWorkspaceView::showMatchReferencePopup()
     if (safeThis->pianoRoll.onPitchPreviewRenderRequested)
       safeThis->pianoRoll.onPitchPreviewRenderRequested();
   };
+  // Re-renders only after a preview actually changed a note.
+  const auto renderPending = [session, render] {
+    if (!session->renderPending) return;
+    session->renderPending = false;
+    render();
+  };
 
   const auto anchor = juce::Rectangle<int>(pianoCard.getRight(), pianoCard.getY(), 0, 0);
-  MatchReferenceDialog::showPopup(this, anchor,
-      [project, original, showCurves](const ReferenceMatch::Settings &settings) {
-        ReferenceMatch::apply(*project, *original, settings);
-        showCurves();
+  MatchReferenceDialog::showPopup(this, anchor, session->settings,
+      [project, session, showCurves](const ReferenceMatch::Settings &settings) {
+        session->settings = settings;
+        if (ReferenceMatch::apply(*project, session->bases, settings).changed > 0) {
+          session->renderPending = true;
+          showCurves();
+        }
       },
-      [safeThis, project, original, showCurves, render](bool accepted) {
+      [safeThis, project, session, showCurves, render](bool accepted) {
         if (!safeThis) return;
         if (!accepted) {
-          ReferenceMatch::restore(*project, *original);
-          showCurves();
-          render(); // Replace any auditioned audio with the original.
+          if (ReferenceMatch::restore(*project, session->opened) > 0) {
+            showCurves();
+            render(); // Replace any auditioned audio with the original.
+          }
           return;
         }
-        // The last preview already requested the final audio; record history.
+        // OK applies the settings shown, even if no slider was moved (a no-op
+        // for notes they already match); a preview has already been rendered.
+        if (ReferenceMatch::apply(*project, session->bases, session->settings).changed > 0) {
+          showCurves();
+          render();
+        }
+        const auto memoryBefore = project->getReferenceMatch();
+        ReferenceMatch::remember(*project, session->bases, session->settings);
+        std::vector<Note *> openedNotes;
+        for (const auto &state : session->opened)
+          openedNotes.push_back(state.note);
+        auto matched = ReferenceMatch::capture(openedNotes);
+        bool notesChanged = false;
+        for (size_t i = 0; i < matched.size(); ++i)
+          notesChanged |= !matched[i].pitch.isCloseTo(session->opened[i].pitch);
+        if (!notesChanged) {
+          // At most the settings to reopen with changed: nothing to undo.
+          const auto &settings = session->settings, &previous = memoryBefore.settings;
+          if (settings.notePitch != previous.notePitch ||
+              settings.expression != previous.expression ||
+              settings.transpose != previous.transpose)
+            project->setModified(true);
+          return;
+        }
         project->setModified(true);
         if (safeThis->pianoRoll.onPitchEditCommitted)
           safeThis->pianoRoll.onPitchEditCommitted();
         if (auto *undo = safeThis->pianoRoll.getUndoManager())
           undo->addAction(std::make_unique<ReferenceMatchAction>(
-              project, *original, ReferenceMatch::capture([&original] {
-                std::vector<Note *> matched;
-                for (const auto &state : *original)
-                  matched.push_back(state.note);
-                return matched;
-              }())));
+              project, session->opened, std::move(matched), memoryBefore,
+              project->getReferenceMatch()));
       },
-      render);
+      renderPending);
   return true;
 }
 

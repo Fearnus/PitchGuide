@@ -199,9 +199,15 @@ or on every note when none is selected, and previews as you change:
 - **Transpose** (-12 to +12 semitones): added on top of the automatic octave
   shift, for singing the part in another range.
 
-Notes the reference is silent over are left alone. OK keeps the result as one
-undo step; Cancel puts the notes back. **Edit > Remove Reference**
-stops guiding the take.
+Notes the reference is silent over are left alone. OK applies the settings
+shown as one undo step; Cancel puts the notes back.
+
+The popup opens with the settings you last confirmed (saved with the project)
+and changes nothing until you move a slider. Reopening it adjusts the earlier
+match instead of adding to it: lowering Expression from 50% to 20% gives 20%,
+measured from the notes as you sang them. A note you edited by hand after
+matching starts again from your edit. **Edit > Remove Reference** stops
+guiding the take.
 
 ### Plugin modes
 

@@ -94,6 +94,15 @@ private:
     // `includeArrays`; binary archives carry them as raw buffers instead.
     static juce::var referenceToJson(const ReferenceTrack& reference, bool includeArrays);
     static void referenceFromJson(ReferenceTrack& reference, const juce::var& json);
+    // What Match Reference remembers. The note contours go into the JSON only
+    // with `includeContours`; binary archives carry them as raw buffers.
+    static juce::var referenceMatchToJson(const ReferenceMatchMemory& memory,
+                                          bool includeContours);
+    static void referenceMatchFromJson(ReferenceMatchMemory& memory,
+                                       const juce::var& json);
+    static juce::var notePitchStateToJson(const NotePitchState& state,
+                                          bool includeContour);
+    static NotePitchState notePitchStateFromJson(const juce::var& json);
 
     // Array helpers (compact string format)
     static juce::String floatArrayToString(const std::vector<float>& arr, int precision = 4);

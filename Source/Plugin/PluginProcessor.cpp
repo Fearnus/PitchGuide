@@ -1886,6 +1886,11 @@ std::uint64_t PitchNetAudioProcessor::computePersistentStateKey(
   hashFloats(reference.features.cepstra);
   hashFloats(reference.features.activity);
   hashFloats(reference.referenceFrameForTakeFrame);
+  // So are Match Reference's remembered note contours.
+  for (const auto &entry : project->getReferenceMatch().entries) {
+    hashFloats(entry.before.bakedDeltaPitch);
+    hashFloats(entry.after.bakedDeltaPitch);
+  }
 
   // 0 is the "nothing to cache" sentinel.
   return hash == 0 ? 1 : hash;
