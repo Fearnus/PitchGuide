@@ -102,11 +102,13 @@ public:
   void updateProjectStateFromEditor(const Project &project);
   /** Analyzes captured audio and merges it into the project at its song
       position, or replaces the project's take with it when replaceExisting.
-      The project's reference vocal is kept and re-aligned to the result. */
+      The project's reference vocal is kept and re-aligned to the result.
+      A take that came from a file remembers it, which names its drag-out. */
   void requestCapturedAudioAnalysis(const juce::AudioBuffer<float> &buffer,
                                     double sampleRate,
                                     double timelineOffsetSeconds,
-                                    bool replaceExisting = false);
+                                    bool replaceExisting = false,
+                                    const juce::File &takeFile = {});
   /** Non-ARA: analyzes an audio file as the take, placed at song time 0 and
       replacing any captured take. False if the file cannot be read. */
   bool analyzeTakeFile(const juce::File &file);

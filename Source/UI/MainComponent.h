@@ -317,6 +317,9 @@ private:
   void finishPianoKeyAudition();
   void jumpTransport(bool forward);
   void resynthesizeIncremental(); // Incremental synthesis on edit
+  TakeExport::State takeExportState() const;
+  TakeDragHandle::Prepared prepareTakeDrag();
+  void showTakeDragProblem(const juce::String &problem);
   void showSettings();
   void openRecentFile(const juce::File &file);
   void addRecentFile(const juce::File &file);
@@ -414,6 +417,7 @@ private:
   std::unique_ptr<UiBrightnessEffect> uiBrightnessEffect;
   AnalysisBackdrop analysisBackdrop;
   AnalysisProgressPopup analysisProgressPopup;
+  TakeDragNotice takeDragNotice;
 
   // Shared across editors so tooltips can extend beyond their native windows.
   std::shared_ptr<juce::TooltipWindow> tooltipWindow;
@@ -459,6 +463,9 @@ private:
   // Async render state (plugin mode) is managed by EditorController
   // Incremental synthesis coalescing
   std::atomic<bool> pendingIncrementalResynth{false};
+  // A resynthesis was requested and has not reported back yet; until it has,
+  // the waveform is not the finished take.
+  bool renderInFlight = false;
 
   // Cursor update throttling
   std::atomic<double> pendingCursorTime{0.0};
