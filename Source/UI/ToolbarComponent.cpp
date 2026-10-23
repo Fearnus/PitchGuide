@@ -19,6 +19,7 @@ ToolbarComponent::ToolbarComponent()
     quantizeButton.setImage(loadImage(BinaryData::quantize_png, BinaryData::quantize_pngSize));
     matchReferenceButton.setImage(loadImage(BinaryData::match_png, BinaryData::match_pngSize));
     matchReferenceButton.setEnabled(false);
+    takeDragHandle.setImage(loadImage(BinaryData::dragout_png, BinaryData::dragout_pngSize));
     auditionButton.setImage(loadImage(BinaryData::audition_png, BinaryData::audition_pngSize));
     undoButton.setImage(loadImage(BinaryData::undo_png, BinaryData::undo_pngSize));
     redoButton.setImage(loadImage(BinaryData::redo_png, BinaryData::redo_pngSize));
@@ -47,6 +48,7 @@ ToolbarComponent::ToolbarComponent()
     addAndMakeVisible(scaleSelectionButton);
     addAndMakeVisible(quantizeButton);
     addAndMakeVisible(matchReferenceButton);
+    addAndMakeVisible(takeDragHandle);
     addAndMakeVisible(auditionButton);
     addAndMakeVisible(undoButton);
     addAndMakeVisible(redoButton);
@@ -71,6 +73,16 @@ ToolbarComponent::ToolbarComponent()
     parametersButton.addListener(this);
     leftPanelButton.addListener(this);
     trackViewButton.addListener(this);
+
+    takeDragHandle.onPrepare = [this]
+    {
+        return onPrepareTakeDrag ? onPrepareTakeDrag() : TakeDragHandle::Prepared{};
+    };
+    takeDragHandle.onProblem = [this](const juce::String &problem)
+    {
+        if (onTakeDragProblem)
+            onTakeDragProblem(problem);
+    };
 
     scaleSelectionButton.onScaleRootChanged = [this](int rootNote)
     {
@@ -214,6 +226,13 @@ void ToolbarComponent::resized()
         paramBtnArea.getRight() - rightButtonSize,
         capsuleY + (capsuleH - rightButtonSize) / 2,
         rightButtonSize, rightButtonSize);
+
+    // The finished take leaves the plug-in here, set slightly apart from the
+    // edit buttons to its left (which the shift below moves 5px closer).
+    auto takeDragArea = rightSection.removeFromRight(rightButtonSize + 12);
+    takeDragHandle.setBounds(takeDragArea.getRight() - rightButtonSize,
+                             capsuleY + (capsuleH - rightButtonSize) / 2,
+                             rightButtonSize, rightButtonSize);
 
     // Everything left of the side-panel button sits 5px further right: the
     // buttons below are laid out from this edge, and the scale selector
@@ -380,6 +399,7 @@ void ToolbarComponent::refreshLocalisedText()
     followButton.setTooltip(TR("tooltip.auto_scroll"));
     quantizeButton.setTooltip(TR("tooltip.quantize_macro"));
     matchReferenceButton.setTooltip(TR("tooltip.match_reference"));
+    takeDragHandle.refreshLocalisedText();
     auditionButton.setTooltip(TR("tooltip.live_audition"));
     recordButton.setTooltip(TR("tooltip.capture"));
     playButton.setTooltip(TR("toolbar.play"));
@@ -648,6 +668,11 @@ void ToolbarComponent::setMatchReferenceEnabled(bool enabled)
 {
     if (matchReferenceButton.isEnabled() != enabled)
         matchReferenceButton.setEnabled(enabled);
+}
+
+void ToolbarComponent::setTakeExportState(TakeExport::State state)
+{
+    takeDragHandle.setState(state);
 }
 
 void ToolbarComponent::showProgress(const juce::String &message)

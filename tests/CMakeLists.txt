@@ -27,6 +27,7 @@ set(PITCHNET_TEST_SOURCES
     ReferenceAlignmentTests.cpp
     ReferenceMatchTests.cpp
     ReferenceTrackTests.cpp
+    TakeExportTests.cpp
     TimelineCoordinateTests.cpp
     VisualWaveformEnvelopeTests.cpp)
 

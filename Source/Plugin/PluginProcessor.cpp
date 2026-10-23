@@ -1095,13 +1095,14 @@ bool PitchNetAudioProcessor::analyzeTakeFile(const juce::File &file) {
 
   if (isCaptureArmed())
     stopCapture();
-  requestCapturedAudioAnalysis(take, reader->sampleRate, 0.0, true);
+  requestCapturedAudioAnalysis(take, reader->sampleRate, 0.0, true, file);
   return true;
 }
 
 void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
     const juce::AudioBuffer<float> &buffer, double sampleRate,
-    double timelineOffsetSeconds, bool replaceExisting) {
+    double timelineOffsetSeconds, bool replaceExisting,
+    const juce::File &takeFile) {
   if (buffer.getNumSamples() <= 0 || sampleRate <= 0.0)
     return;
 
@@ -1154,8 +1155,8 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
           }
         });
       },
-      [this, timelineOffsetSeconds, previousCapturedProject,
-       reference](const juce::AudioBuffer<float> &) {
+      [this, timelineOffsetSeconds, previousCapturedProject, reference,
+       takeFile](const juce::AudioBuffer<float> &) {
         if (!araAnalysisController)
           return;
 
@@ -1291,6 +1292,7 @@ void PitchNetAudioProcessor::requestCapturedAudioAnalysis(
                        std::max(0.0, timelineOffsetSeconds));
         } else {
           completedProject = std::make_unique<Project>(*analyzedProject);
+          completedProject->setFilePath(takeFile);
         }
         // The reference outlives takes; it is re-aligned below, once the take
         // sits at its song position. The snapshot was cleared when this

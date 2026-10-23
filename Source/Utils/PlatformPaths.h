@@ -19,6 +19,9 @@
  *   - Models: <exe_dir>/models/
  *   - Logs: ~/.config/PitchGuide/logs/
  *   - Config: ~/.config/PitchGuide/
+ *
+ * All platforms:
+ *   - Dragged-out takes: <Documents>/PitchGuide/Takes/
  */
 namespace PlatformPaths
 {
@@ -232,6 +235,14 @@ namespace PlatformPaths
         // All platforms use userApplicationDataDirectory
         return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
             .getChildFile("PitchGuide");
+    }
+
+    // Kept out of the temp folder on purpose: a DAW references a dropped file
+    // where it lies, so it has to outlive this session.
+    inline juce::File getTakeExportDirectory()
+    {
+        return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile("PitchGuide/Takes");
     }
 
     inline juce::File getLogFile(const juce::String &name)

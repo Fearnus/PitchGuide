@@ -42,7 +42,7 @@ PitchGuide is being reworked step by step from the PitchNet codebase:
 2. Time-align a new take to an isolated reference vocal (done).
 3. Drop in a reference and a take; show the reference pitch over the take (done).
 4. "Match reference" correction in the editor: pitch, expression and timing (done).
-5. Drag the corrected take out of the plug-in into the DAW as audio.
+5. Drag the corrected take out of the plug-in into the DAW as audio (done).
 6. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
 
 ## Features
@@ -55,7 +55,7 @@ PitchGuide is being reworked step by step from the PitchNet codebase:
 - High-quality, band-limited audio sample-rate conversion with
   [r8brain-free-src](https://github.com/avaneev/r8brain-free-src)
 - Undo/redo for all editing operations
-- Export audio (WAV) and MIDI
+- Export audio (WAV) and MIDI, or drag the corrected take straight into a DAW
 - Standalone app plus VST3/AU plugins (AAX optional, ARA supported)
 - GPU acceleration via CUDA or DirectML on Windows; CoreML on macOS
 - Multi-language UI (English, Japanese, Chinese Simplified, Chinese Traditional, Korean, Spanish)
@@ -176,7 +176,7 @@ Notes:
 2. Analyze to detect pitch and segment notes.
 3. Edit notes in the piano roll — adjust pitch, timing, and expression.
 4. Preview changes in real time via the neural vocoder.
-5. Export the edited audio or MIDI.
+5. Export the edited audio or MIDI, or drag the take out of the toolbar into a DAW.
 
 ### Guiding a take with a reference vocal
 
@@ -218,6 +218,30 @@ match instead of adding to it: lowering Expression from 50% to 20% gives 20%,
 measured from the notes as you sang them. A note you edited by hand after
 matching starts again from your edit. **Edit > Remove Reference** stops
 guiding the take.
+
+### Dragging the corrected take into the DAW
+
+When the take sounds right, drag the handle at the right of the toolbar (a
+waveform with an arrow, next to the side-panel button) and drop it on the
+DAW, for example on FL Studio's playlist. What lands there is a WAV of the
+corrected take with every edit rendered. The plug-in's Dry/Wet and Output
+Gain host parameters are mixing controls and are not applied to it.
+
+- While edits are still rendering the handle is dimmed, and a drag only says
+  so. Drag again once the progress line under the edit tools is gone.
+- The file is named after the take, `<take> (PitchGuide).wav`, and saved in
+  `Documents/PitchGuide/Takes` (or `PitchGuide Takes` in the system temp
+  folder if Documents cannot be written to). It stays there because a DAW
+  plays a dropped file from where it lies: FL Studio does not copy it into
+  the project. Clear the folder out yourself once a song is finished and
+  bounced.
+- Dragging again without new edits reuses the same file. After more edits
+  the next drag writes `<take> (PitchGuide 2).wav`, and so on, so a clip
+  already in the DAW never changes underneath it.
+- The file starts at song time 0:00, like the take: a dropped take file
+  starts there, and a captured take keeps the silence before the point where
+  capture began. Drop it at the very start of the song and it lines up.
+- It is a 24-bit WAV at the project's sample rate, mono when the take is.
 
 ### Plugin modes
 

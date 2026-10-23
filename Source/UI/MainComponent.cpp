@@ -695,6 +695,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
   addAndMakeVisible(workspace);
   addChildComponent(analysisBackdrop);
   addChildComponent(analysisProgressPopup);
+  addChildComponent(takeDragNotice);
 
   // Setup workspace with stacked piano roll + overview cards
   workspace.setMainContent(&pianoRollView);
@@ -887,6 +888,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
     pianoRollView.showPitchCenterPopup();
   };
   toolbar.onMatchReference = [this] { openMatchReference(); };
+  toolbar.onPrepareTakeDrag = [this] { return prepareTakeDrag(); };
+  toolbar.onTakeDragProblem = [this](const juce::String &problem)
+  { showTakeDragProblem(problem); };
   toolbar.setUndoRedoEnabled(undoManager && undoManager->canUndo(),
                              undoManager && undoManager->canRedo());
 
@@ -1510,6 +1514,7 @@ void MainComponent::timerCallback()
     toolbar.setMatchReferenceEnabled(project != nullptr &&
                                      project->getReference().isAligned());
   }
+  toolbar.setTakeExportState(takeExportState());
 
   // Handle throttled cursor updates (30Hz max)
   if (hasPendingCursorUpdate.load())
@@ -2741,6 +2746,7 @@ void MainComponent::resynthesizeIncremental()
   toolbar.showProgress(TR("progress.synthesizing"));
   toolbar.setProgress(-1.0f);
   setToolGroupEnabled(false);
+  renderInFlight = true;
 
   if (isPluginMode() && onRequestBackendRender)
   {
@@ -2762,6 +2768,7 @@ void MainComponent::resynthesizeIncremental()
         if (safeThis == nullptr)
           return;
 
+        safeThis->renderInFlight = false;
         safeThis->setToolGroupEnabled(true);
         safeThis->toolbar.hideProgress();
 
@@ -2777,6 +2784,56 @@ void MainComponent::resynthesizeIncremental()
       },
       pendingIncrementalResynth,
       isPluginMode());
+}
+
+TakeExport::State MainComponent::takeExportState() const
+{
+  const auto *project = getProject();
+  if (project == nullptr || project->getAudioData().waveform.getNumSamples() == 0)
+    return TakeExport::State::noTake;
+
+  // The synthesizer writes the waveform from a worker thread while it runs,
+  // and a render still queued behind it would leave the latest edit out.
+  if (renderInFlight || pendingIncrementalResynth.load() || isInferenceBusy())
+    return TakeExport::State::rendering;
+  return TakeExport::State::ready;
+}
+
+TakeDragHandle::Prepared MainComponent::prepareTakeDrag()
+{
+  switch (takeExportState())
+  {
+  case TakeExport::State::noTake:
+    return {{}, TR("tooltip.drag_take_empty")};
+  case TakeExport::State::rendering:
+    return {{}, TR("dragout.rendering")};
+  case TakeExport::State::ready:
+    break;
+  }
+
+  const auto &project = *getProject();
+  juce::String error;
+  auto file = TakeExport::exportTake(
+      project, PlatformPaths::getTakeExportDirectory(), error);
+  // Documents can be closed to the host (Windows' controlled folder access),
+  // so fall back to the temp folder rather than not dragging at all.
+  if (file == juce::File())
+    file = TakeExport::exportTake(
+        project,
+        juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getChildFile("PitchGuide Takes"),
+        error);
+  if (file == juce::File())
+    return {{}, TR("dragout.failed") + "\n" + error};
+
+  LOG("drag-out: " + file.getFullPathName());
+  return {file, {}};
+}
+
+void MainComponent::showTakeDragProblem(const juce::String &problem)
+{
+  takeDragNotice.show(problem,
+                      getLocalArea(&toolbar, toolbar.getTakeDragHandleBounds()));
 }
 
 void MainComponent::onNoteSelected(Note *note)
@@ -2935,6 +2992,7 @@ void MainComponent::hideAnalysisProgress()
 
 void MainComponent::finishBackendRender(bool success)
 {
+  renderInFlight = false;
   setToolGroupEnabled(true);
   toolbar.hideProgress();
 

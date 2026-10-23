@@ -6,6 +6,7 @@
 #include "../Utils/UI/Theme.h"
 #include "Buttons.h"
 #include "ScaleSelectionControl.h"
+#include "TakeDragHandle.h"
 #include <optional>
 
 // Forward declaration - EditMode is defined in PianoRollComponent.h
@@ -93,6 +94,8 @@ public:
     void setLeftPanelAvailable(bool available);
     void setUndoRedoEnabled(bool undoEnabled, bool redoEnabled);
     void setMatchReferenceEnabled(bool enabled);
+    void setTakeExportState(TakeExport::State state);
+    juce::Rectangle<int> getTakeDragHandleBounds() const { return takeDragHandle.getBounds(); }
     void setProject(Project* project);
     bool isFollowPlayback() const { return followPlayback; }
     bool isLoopEnabled() const { return loopEnabled; }
@@ -121,6 +124,8 @@ public:
     std::function<void(bool)> onToggleAudition;
     std::function<void()> onCorrectPitchCenter;
     std::function<void()> onMatchReference;
+    std::function<TakeDragHandle::Prepared()> onPrepareTakeDrag;
+    std::function<void(const juce::String &)> onTakeDragProblem;
     std::function<void(int)> onScaleRootChanged;
     std::function<void(ScaleMode)> onScaleModeChanged;
     std::function<void(std::optional<int>)> onScaleRootPreviewChanged;
@@ -158,6 +163,7 @@ private:
     ScaleSelectionControl scaleSelectionButton;
     Button quantizeButton;
     Button matchReferenceButton;
+    TakeDragHandle takeDragHandle;
     ToggleButton auditionButton;
     Button undoButton;
     Button redoButton;
