@@ -15,15 +15,6 @@
 #include <cmath>
 #include <mutex>
 
-namespace
-{
-std::mutex &getDirectMLModelLoadMutex()
-{
-  static std::mutex mutex;
-  return mutex;
-}
-} // namespace
-
 EditorController::EditorController(bool enableAudioDevice)
 {
   project = std::make_unique<Project>();
@@ -122,7 +113,7 @@ void EditorController::reloadInferenceModels(bool async)
     if (provider == GPUProvider::DirectML)
     {
       const std::lock_guard<std::mutex> directMLLoadLock(
-          getDirectMLModelLoadMutex());
+          directMLSessionCreationMutex());
       LOG("EditorController: serializing DirectML model loading");
 
       if (!self->shuttingDown.load() && self->fcpePitchDetector && fcpePath.existsAsFile())

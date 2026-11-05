@@ -65,6 +65,271 @@ std::vector<float> GAMEDetector::resampleToModelRate(const float *audio,
     return resampled;
 }
 
+// ─── Seeding random ops in a serialized ONNX model ──────────────────
+//
+// Just enough protobuf to walk ModelProto -> GraphProto -> NodeProto (and
+// subgraphs held in node attributes or functions), append a `seed` attribute
+// to random ops, and re-emit everything else byte for byte. Field numbers are
+// from onnx.proto3.
+
+namespace
+{
+struct ProtoField
+{
+    uint32_t number = 0;
+    uint32_t wireType = 0;
+    size_t begin = 0;        // first byte of the tag
+    size_t payloadBegin = 0; // for length-delimited fields, after the length
+    size_t end = 0;
+};
+
+bool readVarint(const uint8_t *data, size_t size, size_t &pos, uint64_t &value)
+{
+    value = 0;
+    for (int shift = 0; shift < 64; shift += 7)
+    {
+        if (pos >= size)
+            return false;
+        const uint8_t byte = data[pos++];
+        value |= static_cast<uint64_t>(byte & 0x7F) << shift;
+        if ((byte & 0x80) == 0)
+            return true;
+    }
+    return false;
+}
+
+bool parseFields(const uint8_t *data, size_t size, std::vector<ProtoField> &fields)
+{
+    size_t pos = 0;
+    while (pos < size)
+    {
+        ProtoField field;
+        field.begin = pos;
+        uint64_t key = 0;
+        if (!readVarint(data, size, pos, key))
+            return false;
+        field.number = static_cast<uint32_t>(key >> 3);
+        field.wireType = static_cast<uint32_t>(key & 7);
+        if (field.number == 0)
+            return false;
+        switch (field.wireType)
+        {
+        case 0:
+        {
+            uint64_t ignored = 0;
+            field.payloadBegin = pos;
+            if (!readVarint(data, size, pos, ignored))
+                return false;
+            break;
+        }
+        case 1:
+            field.payloadBegin = pos;
+            if (size - pos < 8)
+                return false;
+            pos += 8;
+            break;
+        case 2:
+        {
+            uint64_t length = 0;
+            if (!readVarint(data, size, pos, length) || length > size - pos)
+                return false;
+            field.payloadBegin = pos;
+            pos += static_cast<size_t>(length);
+            break;
+        }
+        case 5:
+            field.payloadBegin = pos;
+            if (size - pos < 4)
+                return false;
+            pos += 4;
+            break;
+        default: // groups (3, 4) are not used by ONNX
+            return false;
+        }
+        field.end = pos;
+        fields.push_back(field);
+    }
+    return true;
+}
+
+void writeVarint(std::vector<uint8_t> &out, uint64_t value)
+{
+    while (value >= 0x80)
+    {
+        out.push_back(static_cast<uint8_t>(value | 0x80));
+        value >>= 7;
+    }
+    out.push_back(static_cast<uint8_t>(value));
+}
+
+void writeBytesField(std::vector<uint8_t> &out, uint32_t number,
+                     const std::vector<uint8_t> &payload)
+{
+    writeVarint(out, (static_cast<uint64_t>(number) << 3) | 2);
+    writeVarint(out, payload.size());
+    out.insert(out.end(), payload.begin(), payload.end());
+}
+
+void copyField(std::vector<uint8_t> &out, const uint8_t *data, const ProtoField &field)
+{
+    out.insert(out.end(), data + field.begin, data + field.end);
+}
+
+std::string fieldString(const uint8_t *data, const ProtoField &field)
+{
+    return std::string(reinterpret_cast<const char *>(data + field.payloadBegin),
+                       field.end - field.payloadBegin);
+}
+
+bool isRandomOp(const std::string &opType)
+{
+    return opType == "RandomUniform" || opType == "RandomUniformLike" ||
+           opType == "RandomNormal" || opType == "RandomNormalLike" ||
+           opType == "Multinomial" || opType == "Bernoulli";
+}
+
+struct Seeder
+{
+    float seed = 0.0f;
+    int seeded = 0;
+
+    // Rewrites the length-delimited fields listed in `children` with `rewrite`
+    // and copies every other field unchanged.
+    template <typename Rewrite>
+    bool rewriteMessage(const uint8_t *data, size_t size, std::vector<uint8_t> &out,
+                        std::initializer_list<uint32_t> children, Rewrite &&rewrite,
+                        std::vector<ProtoField> *parsed = nullptr)
+    {
+        std::vector<ProtoField> fields;
+        if (!parseFields(data, size, fields))
+            return false;
+        for (const auto &field : fields)
+        {
+            const bool child =
+                field.wireType == 2 &&
+                std::find(children.begin(), children.end(), field.number) != children.end();
+            if (!child)
+            {
+                copyField(out, data, field);
+                continue;
+            }
+            std::vector<uint8_t> payload;
+            if (!rewrite(field.number, data + field.payloadBegin, field.end - field.payloadBegin,
+                         payload))
+                return false;
+            writeBytesField(out, field.number, payload);
+        }
+        if (parsed != nullptr)
+            *parsed = std::move(fields);
+        return true;
+    }
+
+    bool graph(const uint8_t *data, size_t size, std::vector<uint8_t> &out)
+    {
+        // GraphProto.node = 1
+        return rewriteMessage(data, size, out, {1},
+                              [this](uint32_t, const uint8_t *d, size_t s, std::vector<uint8_t> &o) {
+                                  return node(d, s, o);
+                              });
+    }
+
+    bool attribute(const uint8_t *data, size_t size, std::vector<uint8_t> &out)
+    {
+        // AttributeProto.g = 6, graphs = 11
+        return rewriteMessage(data, size, out, {6, 11},
+                              [this](uint32_t, const uint8_t *d, size_t s, std::vector<uint8_t> &o) {
+                                  return graph(d, s, o);
+                              });
+    }
+
+    bool node(const uint8_t *data, size_t size, std::vector<uint8_t> &out)
+    {
+        // NodeProto.attribute = 5, op_type = 4, domain = 7
+        std::vector<ProtoField> fields;
+        if (!rewriteMessage(data, size, out, {5},
+                            [this](uint32_t, const uint8_t *d, size_t s, std::vector<uint8_t> &o) {
+                                return attribute(d, s, o);
+                            },
+                            &fields))
+            return false;
+
+        std::string opType;
+        std::string domain;
+        bool hasSeed = false;
+        for (const auto &field : fields)
+        {
+            if (field.wireType != 2)
+                continue;
+            if (field.number == 4)
+                opType = fieldString(data, field);
+            else if (field.number == 7)
+                domain = fieldString(data, field);
+            else if (field.number == 5)
+            {
+                std::vector<ProtoField> attributeFields;
+                if (!parseFields(data + field.payloadBegin, field.end - field.payloadBegin,
+                                 attributeFields))
+                    return false;
+                for (const auto &attributeField : attributeFields)
+                    if (attributeField.number == 1 && attributeField.wireType == 2 &&
+                        fieldString(data + field.payloadBegin, attributeField) == "seed")
+                        hasSeed = true;
+            }
+        }
+        if (!isRandomOp(opType) || !(domain.empty() || domain == "ai.onnx") || hasSeed)
+            return true;
+
+        // AttributeProto { name = "seed" (1), f = seed (2), type = FLOAT (20) }
+        std::vector<uint8_t> seedAttribute;
+        seedAttribute.push_back(0x0A);
+        seedAttribute.push_back(4);
+        seedAttribute.insert(seedAttribute.end(), {'s', 'e', 'e', 'd'});
+        seedAttribute.push_back(0x15);
+        uint32_t bits = 0;
+        std::memcpy(&bits, &seed, sizeof(bits));
+        for (int byte = 0; byte < 4; ++byte)
+            seedAttribute.push_back(static_cast<uint8_t>(bits >> (8 * byte)));
+        writeVarint(seedAttribute, (20u << 3) | 0);
+        writeVarint(seedAttribute, 1); // AttributeProto.FLOAT
+        writeBytesField(out, 5, seedAttribute);
+        ++seeded;
+        return true;
+    }
+
+    bool function(const uint8_t *data, size_t size, std::vector<uint8_t> &out)
+    {
+        // FunctionProto.node = 7
+        return rewriteMessage(data, size, out, {7},
+                              [this](uint32_t, const uint8_t *d, size_t s, std::vector<uint8_t> &o) {
+                                  return node(d, s, o);
+                              });
+    }
+
+    bool model(const uint8_t *data, size_t size, std::vector<uint8_t> &out)
+    {
+        // ModelProto.graph = 7, functions = 25
+        return rewriteMessage(data, size, out, {7, 25},
+                              [this](uint32_t number, const uint8_t *d, size_t s,
+                                     std::vector<uint8_t> &o) {
+                                  return number == 7 ? graph(d, s, o) : function(d, s, o);
+                              });
+    }
+};
+} // namespace
+
+int GAMEDetector::seedRandomOps(std::vector<uint8_t> &model, float seed)
+{
+    Seeder seeder;
+    seeder.seed = seed;
+    std::vector<uint8_t> rewritten;
+    rewritten.reserve(model.size() + 64);
+    if (model.empty() || !seeder.model(model.data(), model.size(), rewritten))
+        return -1;
+    if (seeder.seeded > 0)
+        model.swap(rewritten);
+    return seeder.seeded;
+}
+
 #ifdef HAVE_ONNXRUNTIME
 
 // ─── ModelSession helpers ───────────────────────────────────────────
@@ -83,33 +348,7 @@ bool GAMEDetector::ModelSession::load(Ort::Env &env, const juce::File &path,
         session =
             std::make_unique<Ort::Session>(env, modelPathStr.c_str(), options);
 #endif
-
-        Ort::AllocatorWithDefaultOptions allocator;
-
-        inputNameStrings.clear();
-        outputNameStrings.clear();
-        inputNames.clear();
-        outputNames.clear();
-
-        size_t numInputs = session->GetInputCount();
-        size_t numOutputs = session->GetOutputCount();
-
-        for (size_t i = 0; i < numInputs; ++i)
-        {
-            auto namePtr = session->GetInputNameAllocated(i, allocator);
-            inputNameStrings.push_back(namePtr.get());
-        }
-        for (size_t i = 0; i < numOutputs; ++i)
-        {
-            auto namePtr = session->GetOutputNameAllocated(i, allocator);
-            outputNameStrings.push_back(namePtr.get());
-        }
-
-        for (const auto &name : inputNameStrings)
-            inputNames.push_back(name.c_str());
-        for (const auto &name : outputNameStrings)
-            outputNames.push_back(name.c_str());
-
+        readNames();
         return true;
     }
     catch (const Ort::Exception &e)
@@ -119,6 +358,55 @@ bool GAMEDetector::ModelSession::load(Ort::Env &env, const juce::File &path,
         session.reset();
         return false;
     }
+}
+
+bool GAMEDetector::ModelSession::loadFromMemory(Ort::Env &env,
+                                                const std::vector<uint8_t> &model,
+                                                const Ort::SessionOptions &options,
+                                                const juce::String &nameForLog)
+{
+    try
+    {
+        session = std::make_unique<Ort::Session>(env, model.data(), model.size(),
+                                                 options);
+        readNames();
+        return true;
+    }
+    catch (const Ort::Exception &e)
+    {
+        LOG("ONNX load failed for " + nameForLog + ": " + juce::String(e.what()));
+        session.reset();
+        return false;
+    }
+}
+
+void GAMEDetector::ModelSession::readNames()
+{
+    Ort::AllocatorWithDefaultOptions allocator;
+
+    inputNameStrings.clear();
+    outputNameStrings.clear();
+    inputNames.clear();
+    outputNames.clear();
+
+    size_t numInputs = session->GetInputCount();
+    size_t numOutputs = session->GetOutputCount();
+
+    for (size_t i = 0; i < numInputs; ++i)
+    {
+        auto namePtr = session->GetInputNameAllocated(i, allocator);
+        inputNameStrings.push_back(namePtr.get());
+    }
+    for (size_t i = 0; i < numOutputs; ++i)
+    {
+        auto namePtr = session->GetOutputNameAllocated(i, allocator);
+        outputNameStrings.push_back(namePtr.get());
+    }
+
+    for (const auto &name : inputNameStrings)
+        inputNames.push_back(name.c_str());
+    for (const auto &name : outputNameStrings)
+        outputNames.push_back(name.c_str());
 }
 
 int GAMEDetector::ModelSession::findInput(const std::string &name) const
@@ -243,6 +531,32 @@ bool GAMEDetector::loadModels(const juce::File &gameDir, GPUProvider provider,
         segmenter.session.reset();
         estimator.session.reset();
         bd2dur.session.reset();
+        segmenterOptions.reset();
+        segmenterFresh = false;
+        segmenterOnDirectML = false;
+
+        // Seed the segmenter's noise (see kSegmenterSeed). A model this cannot
+        // parse, or one without random ops, loads from its file as before.
+        segmenterModelData.clear();
+        {
+            juce::MemoryBlock bytes;
+            if (gameDir.getChildFile("segmenter.onnx").loadFileAsData(bytes))
+            {
+                const auto *first = static_cast<const uint8_t *>(bytes.getData());
+                segmenterModelData.assign(first, first + bytes.getSize());
+                const int seeded = seedRandomOps(segmenterModelData, kSegmenterSeed);
+                if (seeded > 0)
+                {
+                    LOG("GAME segmenter: seeded " + juce::String(seeded) + " random op(s)");
+                }
+                else
+                {
+                    LOG("GAME segmenter: no random ops seeded (" + juce::String(seeded) +
+                        "); results may vary between analyses");
+                    segmenterModelData.clear();
+                }
+            }
+        }
 
         onnxEnv = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING,
                                              "GAMEDetector");
@@ -279,7 +593,16 @@ bool GAMEDetector::loadModels(const juce::File &gameDir, GPUProvider provider,
                 loaded = false;
                 return false;
             }
-            if (!entry.session->load(*onnxEnv, path, *entry.opts))
+            const bool seededSegmenter =
+                entry.session == &segmenter && !segmenterModelData.empty();
+            auto loadWith = [&](const Ort::SessionOptions &options) {
+                return seededSegmenter
+                           ? entry.session->loadFromMemory(*onnxEnv, segmenterModelData,
+                                                           options, entry.filename)
+                           : entry.session->load(*onnxEnv, path, options);
+            };
+            Ort::SessionOptions *usedOpts = entry.opts;
+            if (!loadWith(*entry.opts))
             {
                 if (provider == GPUProvider::CPU)
                 {
@@ -290,11 +613,20 @@ bool GAMEDetector::loadModels(const juce::File &gameDir, GPUProvider provider,
                 LOG("Retrying GAME " + juce::String(entry.filename) +
                     " with CPU");
                 auto &cpuOpts = entry.opts == &lightOpts ? cpuLightOpts : cpuHeavyOpts;
-                if (!entry.session->load(*onnxEnv, path, cpuOpts))
+                if (!loadWith(cpuOpts))
                 {
                     loaded = false;
                     return false;
                 }
+                usedOpts = &cpuOpts;
+            }
+            if (seededSegmenter)
+            {
+                // Kept to recreate the session before each analysis.
+                segmenterOptions = std::make_unique<Ort::SessionOptions>(usedOpts->Clone());
+                segmenterOnDirectML =
+                    provider == GPUProvider::DirectML && usedOpts == entry.opts;
+                segmenterFresh = true;
             }
             LOG("Loaded GAME " + juce::String(entry.filename) +
                 " (inputs=" +
@@ -320,6 +652,33 @@ bool GAMEDetector::loadModels(const juce::File &gameDir, GPUProvider provider,
 #endif
 }
 
+bool GAMEDetector::restartSegmenter()
+{
+#ifdef HAVE_ONNXRUNTIME
+    if (segmenterModelData.empty() || !segmenterOptions || !onnxEnv)
+        return true; // unseeded: there is no random state worth resetting
+
+    std::unique_lock<std::mutex> directMLLock(directMLSessionCreationMutex(),
+                                              std::defer_lock);
+    if (segmenterOnDirectML)
+        directMLLock.lock();
+
+    // The seeded op's generator lives in the session and advances on every
+    // run; a new session starts it from the seed again.
+    segmenter.session.reset();
+    if (!segmenter.loadFromMemory(*onnxEnv, segmenterModelData, *segmenterOptions,
+                                  "segmenter.onnx"))
+    {
+        loaded = false;
+        return false;
+    }
+    segmenterFresh = true;
+    return true;
+#else
+    return false;
+#endif
+}
+
 std::vector<GAMEDetector::NoteEvent>
 GAMEDetector::detectNotes(const float *audio, int numSamples, int sampleRate)
 {
@@ -335,6 +694,14 @@ std::vector<GAMEDetector::NoteEvent> GAMEDetector::detectNotesWithProgress(
     {
         return {};
     }
+
+    // Same audio, same notes: every analysis starts from the seeded noise.
+    if (!segmenterFresh && !restartSegmenter())
+    {
+        LOG("GAME: could not recreate the segmenter session");
+        return {};
+    }
+    segmenterFresh = false;
 
     if (progressCallback)
         progressCallback(0.02);
