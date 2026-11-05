@@ -122,6 +122,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path portable/PitchGuide.vst3/Contents/Resources | Out-Null
           Copy-Item -Recurse -Path Resources/models -Destination portable/PitchGuide.vst3/Contents/Resources/models
 
+      # PitchGuide Live, the karaoke plug-in, the same way. It only detects
+      # pitch and notes, so it carries every model except the vocoder.
+      - name: Package portable PitchGuide Live VST3
+        shell: pwsh
+        run: |
+          $bundle = "build/PitchGuideLivePlugin_artefacts/${{ env.BUILD_TYPE }}/VST3/PitchGuide Live.vst3"
+          if (-not (Test-Path "$bundle/Contents/x86_64-win/onnxruntime.dll")) {
+            throw "onnxruntime.dll is missing from $bundle"
+          }
+          New-Item -ItemType Directory -Force -Path portable-live | Out-Null
+          Copy-Item -Recurse -Path $bundle -Destination portable-live/
+          $models = "portable-live/PitchGuide Live.vst3/Contents/Resources/models"
+          New-Item -ItemType Directory -Force -Path $models | Out-Null
+          Copy-Item -Recurse -Path Resources/models/* -Destination $models -Exclude "pc_nsf_hifigan*"
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
@@ -135,6 +150,14 @@ jobs:
         with:
           name: PitchGuide-Windows-VST3
           path: portable/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload portable PitchGuide Live VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: PitchGuide-Live-Windows-VST3
+          path: portable-live/
           if-no-files-found: error
           retention-days: 30
 
@@ -158,6 +181,7 @@ jobs:
           cp artifacts/PitchGuide-Linux/PitchGuide-Linux-x86_64.run release/
           cp artifacts/PitchGuide-Windows-Installer/PitchGuide_Installer.exe release/PitchGuide-Windows-Installer.exe
           (cd artifacts/PitchGuide-Windows-VST3 && zip -r ../../release/PitchGuide-Windows-VST3.zip PitchGuide.vst3)
+          (cd artifacts/PitchGuide-Live-Windows-VST3 && zip -r "../../release/PitchGuide-Live-Windows-VST3.zip" "PitchGuide Live.vst3")
           ls -la release
 
       - name: Create draft release

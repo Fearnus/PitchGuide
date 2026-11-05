@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "GPUProvider.h"
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -75,8 +76,27 @@ public:
     };
     const std::vector<ChunkRange> &getLastChunkRanges() const { return lastChunkRanges; }
 
+    /**
+     * Gives every unseeded random op (RandomUniform[Like], RandomNormal[Like],
+     * Multinomial, Bernoulli) in a serialized ONNX model a fixed seed, in
+     * place, including ops in subgraphs. Returns how many ops were seeded, or
+     * -1 (model untouched) if the bytes are not a model it can parse.
+     */
+    static int seedRandomOps(std::vector<uint8_t> &model, float seed);
+
 private:
     bool loaded = false;
+
+    // The segmenter's D3PM loop draws noise from a RandomUniformLike op that
+    // the model leaves unseeded, so ONNX Runtime seeds it from the clock and
+    // the same audio gave different notes on every analysis. The model is
+    // loaded from memory with that op seeded, and its session is recreated
+    // before each analysis so every analysis starts from the same noise.
+    static constexpr float kSegmenterSeed = 1234.0f;
+    std::vector<uint8_t> segmenterModelData; // seeded model; empty = loaded from file
+    bool segmenterFresh = false;             // no Run since the session was created
+    bool segmenterOnDirectML = false;
+    bool restartSegmenter();
 
     // D3PM and inference parameters
     int numD3PMSteps = 2;
@@ -120,11 +140,18 @@ private:
 
         bool load(Ort::Env &env, const juce::File &path,
                   const Ort::SessionOptions &options);
+        bool loadFromMemory(Ort::Env &env, const std::vector<uint8_t> &model,
+                            const Ort::SessionOptions &options,
+                            const juce::String &nameForLog);
         int findInput(const std::string &name) const;
         int findOutput(const std::string &name) const;
+
+    private:
+        void readNames();
     };
 
     std::unique_ptr<Ort::Env> onnxEnv;
+    std::unique_ptr<Ort::SessionOptions> segmenterOptions;
     ModelSession encoder;
     ModelSession segmenter;
     ModelSession estimator;
