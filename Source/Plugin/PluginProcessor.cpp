@@ -1072,19 +1072,13 @@ void PitchNetAudioProcessor::dispatchLiveCaptureUpdate() {
 }
 
 bool PitchNetAudioProcessor::analyzeTakeFile(const juce::File &file) {
-  juce::AudioFormatManager formats;
-  formats.registerBasicFormats();
-  std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
-  if (reader == nullptr || reader->lengthInSamples <= 0 ||
-      reader->lengthInSamples > std::numeric_limits<int>::max() ||
-      reader->numChannels == 0)
+  juce::AudioBuffer<float> fileAudio;
+  double fileSampleRate = 0.0;
+  if (!EditorController::readAudioFileAsTake(file, fileAudio, fileSampleRate))
     return false;
 
-  const int numSamples = static_cast<int>(reader->lengthInSamples);
-  const int fileChannels = static_cast<int>(reader->numChannels);
-  juce::AudioBuffer<float> fileAudio(fileChannels, numSamples);
-  if (!reader->read(&fileAudio, 0, numSamples, 0, true, true))
-    return false;
+  const int numSamples = fileAudio.getNumSamples();
+  const int fileChannels = fileAudio.getNumChannels();
 
   // Playback copies the project channel for channel, so spread a mono file
   // over the output like a capture of the same take would be.
@@ -1095,7 +1089,7 @@ bool PitchNetAudioProcessor::analyzeTakeFile(const juce::File &file) {
 
   if (isCaptureArmed())
     stopCapture();
-  requestCapturedAudioAnalysis(take, reader->sampleRate, 0.0, true, file);
+  requestCapturedAudioAnalysis(take, fileSampleRate, 0.0, true, file);
   return true;
 }
 

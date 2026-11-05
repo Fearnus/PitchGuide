@@ -18,6 +18,7 @@ set(PITCHNET_TEST_SOURCES
     FormantShiftTests.cpp
     GameDeterminismTests.cpp
     HostSyncTempoTests.cpp
+    LivePitchTests.cpp
     NoteGainCurveTests.cpp
     NonAraLifecycleTests.cpp
     OriginalWaveformRestoreTests.cpp

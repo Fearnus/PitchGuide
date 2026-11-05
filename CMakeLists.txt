@@ -1044,6 +1044,89 @@ if(APPLE)
     endif()
 endif()
 
+# PitchGuide Live: karaoke pitch feedback as its own small plug-in. It goes on
+# the singer's microphone track, shows the notes of a reference vocal (found
+# by the editor's own take analysis) and the singer's live pitch over them,
+# and has none of the editor. Shares pitchnet_core/pitchnet_ui and the models.
+option(PITCHNET_BUILD_LIVE "Build the PitchGuide Live karaoke plug-in" ON)
+if(PITCHNET_BUILD_LIVE)
+    if(PITCHNET_DEV_BUILD)
+        set(PITCHNET_LIVE_PRODUCT_NAME "PitchGuide Live Dev")
+        set(PITCHNET_LIVE_BUNDLE_ID "com.fearnus.pitchguide.live.dev")
+        set(PITCHNET_LIVE_PLUGIN_CODE Pgl0)
+    else()
+        set(PITCHNET_LIVE_PRODUCT_NAME "PitchGuide Live")
+        set(PITCHNET_LIVE_BUNDLE_ID "com.fearnus.pitchguide.live")
+        set(PITCHNET_LIVE_PLUGIN_CODE Pgl1)
+    endif()
+
+    juce_add_plugin(PitchGuideLivePlugin
+        PRODUCT_NAME "${PITCHNET_LIVE_PRODUCT_NAME}"
+        COMPANY_NAME "Fearnus"
+        COMPANY_WEBSITE "https://github.com/Fearnus/PitchGuide"
+        BUNDLE_ID "${PITCHNET_LIVE_BUNDLE_ID}"
+        COMPANY_COPYRIGHT "${PITCHNET_COPYRIGHT}"
+        PLUGIN_MANUFACTURER_CODE Frns
+        PLUGIN_CODE ${PITCHNET_LIVE_PLUGIN_CODE}
+        FORMATS VST3 AU
+        VST3_CATEGORIES Fx Analyzer
+        AU_MAIN_TYPE kAudioUnitType_Effect
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        FILE_SHARING_ENABLED TRUE)
+
+    file(GLOB PITCHNET_LIVE_SOURCES CONFIGURE_DEPENDS
+        "Source/LivePlugin/*.cpp" "Source/LivePlugin/*.h")
+    target_sources(PitchGuideLivePlugin PRIVATE ${PITCHNET_LIVE_SOURCES})
+    target_compile_features(PitchGuideLivePlugin PRIVATE cxx_std_17)
+    target_compile_definitions(PitchGuideLivePlugin PRIVATE
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_link_libraries(PitchGuideLivePlugin PRIVATE
+        pitchnet_ui
+        pitchnet_core
+        juce::juce_audio_processors
+        juce::juce_audio_plugin_client
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags)
+
+    if(MSVC)
+        target_link_options(PitchGuideLivePlugin_VST3 PRIVATE
+            "$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:/ILK:${PITCHNET_ILK_DIR}/PitchGuideLivePlugin_VST3-$<CONFIG>.ilk>")
+    endif()
+
+    # ONNX Runtime ships next to the plug-in exactly as for PitchGuide itself.
+    if(ONNXRUNTIME_FOUND AND WIN32)
+        target_link_options(PitchGuideLivePlugin_VST3 PRIVATE "/DELAYLOAD:onnxruntime.dll")
+        target_link_libraries(PitchGuideLivePlugin_VST3 PRIVATE delayimp)
+        foreach(DLL ${ONNXRUNTIME_DLLS})
+            add_custom_command(TARGET PitchGuideLivePlugin_VST3 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DLL}" "$<TARGET_FILE_DIR:PitchGuideLivePlugin_VST3>")
+        endforeach()
+    elseif(ONNXRUNTIME_FOUND AND APPLE AND ONNXRUNTIME_DYLIBS)
+        foreach(_pn_live_target PitchGuideLivePlugin_VST3 PitchGuideLivePlugin_AU)
+            add_custom_command(TARGET ${_pn_live_target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:${_pn_live_target}>/Contents/Frameworks"
+                COMMAND ${CMAKE_COMMAND} -DDEST="$<TARGET_BUNDLE_DIR:${_pn_live_target}>/Contents/Frameworks" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CleanOnnxRuntimeFrameworks.cmake")
+            foreach(DYLIB ${ONNXRUNTIME_DYLIBS})
+                add_custom_command(TARGET ${_pn_live_target} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${DYLIB}" "$<TARGET_BUNDLE_DIR:${_pn_live_target}>/Contents/Frameworks/")
+            endforeach()
+            add_custom_command(TARGET ${_pn_live_target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E create_symlink
+                "${ONNXRUNTIME_VERSIONED_DYLIB_NAME}"
+                "$<TARGET_BUNDLE_DIR:${_pn_live_target}>/Contents/Frameworks/libonnxruntime.dylib"
+                COMMAND install_name_tool -add_rpath "@loader_path/../Frameworks" "$<TARGET_BUNDLE_DIR:${_pn_live_target}>/Contents/MacOS/${PITCHNET_LIVE_PRODUCT_NAME}" 2>/dev/null || true
+                COMMAND codesign --force --deep -s - "$<TARGET_BUNDLE_DIR:${_pn_live_target}>" 2>/dev/null || true)
+        endforeach()
+    endif()
+endif()
+
 # Unit tests. Off by default so a normal build and CI are unaffected; enable
 # with -DPITCHNET_BUILD_TESTS=ON and run with ctest --test-dir <build-dir>.
 if(PITCHNET_BUILD_TESTS)

@@ -43,6 +43,7 @@ Name: "custom"; Description: "Custom installation"; Flags: iscustom
 [Components]
 Name: "main"; Description: "Standalone application and runtime resources"; Types: custom; Flags: fixed
 Name: "vst3"; Description: "VST3"; Types: custom
+Name: "live"; Description: "PitchGuide Live: karaoke pitch feedback (VST3)"; Types: custom
 #if HaveAAX
 Name: "aax"; Description: "AAX"; Types: custom
 #endif
@@ -51,6 +52,7 @@ Name: "aax"; Description: "AAX"; Types: custom
 Source: "build\PitchGuide_artefacts\Release\PitchGuide.exe"; DestDir: "{app}"; Components: main; Flags: ignoreversion
 Source: "build\PitchGuide_artefacts\Release\onnxruntime.dll"; DestDir: "{app}"; Components: main; Flags: ignoreversion
 Source: "build\PitchGuidePlugin_artefacts\Release\VST3\PitchGuide.vst3\*"; DestDir: "{code:getPreVST64Path}"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build\PitchGuideLivePlugin_artefacts\Release\VST3\PitchGuide Live.vst3\*"; DestDir: "{code:getPreLiveVST64Path}"; Components: live; Flags: ignoreversion recursesubdirs createallsubdirs
 #if HaveAAX
 Source: "build\PitchGuidePlugin_artefacts\Release\AAX\PitchGuide.aaxplugin\*"; DestDir: "{code:getPreAAXPath}"; Components: aax; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
@@ -75,6 +77,11 @@ end;
 function getPreVST64Path(Param: String): String;
 begin
   Result := 'C:\Program Files\Common Files\VST3\{#MyAppPublisher}\{#MyAppName}.vst3';
+end;
+
+function getPreLiveVST64Path(Param: String): String;
+begin
+  Result := 'C:\Program Files\Common Files\VST3\{#MyAppPublisher}\{#MyAppName} Live.vst3';
 end;
 
 function getPreAAXPath(Param: String): String;

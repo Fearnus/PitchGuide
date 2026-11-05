@@ -43,7 +43,8 @@ PitchGuide is being reworked step by step from the PitchNet codebase:
 3. Drop in a reference and a take; show the reference pitch over the take (done).
 4. "Match reference" correction in the editor: pitch, expression and timing (done).
 5. Drag the corrected take out of the plug-in into the DAW as audio (done).
-6. Live pitch detection (YIN/MPM) as on-screen feedback while singing.
+6. Live pitch detection (YIN) as on-screen feedback while singing: the
+   PitchGuide Live karaoke plug-in (done).
 
 ## Features
 
@@ -166,7 +167,8 @@ Notes:
 
 ## Plugin Formats
 
-- VST3 and AU are built by default.
+- VST3 and AU are built by default, for both PitchGuide and PitchGuide Live
+  (turn the latter off with `-DPITCHNET_BUILD_LIVE=OFF`).
 - AAX is built only when `AAX_SDK_PATH` is set and valid.
 - ARA is enabled when the `third_party/ARA_SDK` submodule is present.
 
@@ -243,6 +245,44 @@ Gain host parameters are mixing controls and are not applied to it.
   capture began. Drop it at the very start of the song and it lines up.
 - It is a 24-bit WAV at the project's sample rate, mono when the take is.
 
+### Singing along with PitchGuide Live
+
+PitchGuide Live is a second, separate plug-in for karaoke practice. It has
+none of the editor: it shows what to sing and how close you are, live.
+
+1. Put **PitchGuide Live** on the track your microphone comes in on, and turn
+   on input monitoring so the track processes the mic while the song plays.
+   The voice passes through unchanged.
+2. Drop an isolated vocal of the song (a stem) on its window, or click
+   **Load reference...**. Its notes are found by the same analysis the editor
+   uses for a take (FCPE or RMVPE pitch and GAME notes, on the device chosen
+   in PitchGuide's settings), once; they are saved with the DAW project, so
+   reopening it does not analyse the song again.
+3. Press play in the DAW. The notes scroll towards the line on the left, the
+   reference's own pitch is drawn over them in amber, and your voice is drawn
+   behind the line: green when it is in tune with the reference, yellow when
+   close, red when off, purple between notes. A dot on the line shows the
+   pitch you are singing now and how many cents you are off. With the
+   transport stopped it works as a tuner against the note under the playhead.
+4. **Transpose** (-24 to +24 semitones, also a host parameter) moves the
+   reference into your range, for example -12 to sing a part an octave down.
+5. The score is the share of the time you sang during the reference's notes
+   that was in tune. "In tune" means within the tolerance of either the note
+   or what the reference actually sings there, so copying the singer's slides
+   and vibrato counts. Loop a passage in the DAW and each attempt overwrites
+   the last; **Clear** starts over.
+
+**Settings** holds the rest: where the reference starts on the host timeline
+(the reference starts at 0:00 by default; put the playhead where the song
+starts and press **Use playhead** if it starts elsewhere), sync compensation
+for your interface's round-trip latency, the in-tune tolerance (default 50
+cents), and a microphone gate with a live input level. The mouse wheel zooms
+time; double-click resets it.
+
+Pitch is detected with YIN on the input decimated to about 16 kHz, a 5 ms hop
+and a window just long enough for 65 Hz: the detector reports a sound about
+20 ms after it was sung, using well under 1% of one CPU core.
+
 ### Plugin modes
 
 - **ARA mode**: Direct audio access in supported hosts (e.g., Studio One, Cubase, Logic).
@@ -254,11 +294,13 @@ Gain host parameters are mixing controls and are not applied to it.
 PitchGuide/
   Source/
     Audio/        # Audio engine, pitch detection, synthesis, vocoder
+      Live/       # Real-time pitch detection and scoring (PitchGuide Live)
     Models/       # Project, note, and audio data models
     UI/           # Piano roll, toolbar, and UI components
     Utils/        # Resampling, localization, mel spectrogram utilities
     Undo/         # Undo/redo action system
     Plugin/       # VST3/AU/AAX/ARA plugin integration
+    LivePlugin/   # PitchGuide Live, the karaoke plug-in
   Resources/
     models/       # ONNX models and data files
     lang/         # Localization JSON (en, ja, zh, zh-TW)

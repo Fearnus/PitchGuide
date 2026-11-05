@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds a self-extracting Linux installer (.run) for PitchGuide, bundling the
-# standalone app, the VST3 plugin, and all required models/resources.
+# standalone app, the VST3 plugins (PitchGuide and PitchGuide Live), and all
+# required models/resources.
 #
 # Usage: packaging/linux/build_installer.sh [build-dir]
 #
@@ -19,9 +20,10 @@ INSTALL_PREFIX="/opt/${COMPANY_DIR}/${APP_NAME}"
 
 STANDALONE_BIN="$BUILD_DIR/PitchGuide_artefacts/Release/PitchGuide"
 VST3_BUNDLE="$BUILD_DIR/PitchGuidePlugin_artefacts/Release/VST3/PitchGuide.vst3"
+LIVE_VST3_BUNDLE="$BUILD_DIR/PitchGuideLivePlugin_artefacts/Release/VST3/PitchGuide Live.vst3"
 ONNX_LIB_DIR="$BUILD_DIR/_deps/onnxruntime-1.19.2-src/lib"
 
-for f in "$STANDALONE_BIN" "$VST3_BUNDLE" "$ONNX_LIB_DIR"; do
+for f in "$STANDALONE_BIN" "$VST3_BUNDLE" "$LIVE_VST3_BUNDLE" "$ONNX_LIB_DIR"; do
     if [ ! -e "$f" ]; then
         echo "Missing build artifact: $f (build the project first: cmake --build \"$BUILD_DIR\" --config Release)" >&2
         exit 1
@@ -62,6 +64,11 @@ echo "==> Staging VST3 plugin"
 cp -r "$VST3_BUNDLE" "$PAYLOAD/vst3/PitchGuide.vst3"
 PLUGIN_SO="$PAYLOAD/vst3/PitchGuide.vst3/Contents/x86_64-linux/PitchGuide.so"
 patchelf --set-rpath "${INSTALL_PREFIX}/lib" "$PLUGIN_SO"
+
+echo "==> Staging PitchGuide Live VST3 plugin"
+cp -r "$LIVE_VST3_BUNDLE" "$PAYLOAD/vst3/PitchGuide Live.vst3"
+LIVE_PLUGIN_SO="$PAYLOAD/vst3/PitchGuide Live.vst3/Contents/x86_64-linux/PitchGuide Live.so"
+patchelf --set-rpath "${INSTALL_PREFIX}/lib" "$LIVE_PLUGIN_SO"
 
 echo "==> Staging desktop integration"
 cp "$ROOT_DIR/Resources/images/icon.png" "$PAYLOAD/usr/share/icons/hicolor/512x512/apps/pitchguide.png"
@@ -121,6 +128,10 @@ else
     cp -r "$PAYLOAD/vst3/PitchGuide.vst3" "${VST3_DIR}/PitchGuide.vst3"
     chown -R "${VST3_USER}:$(id -gn "${VST3_USER}")" "${VST3_DIR}/PitchGuide.vst3"
     chmod -R u+rwX,go+rX "${VST3_DIR}/PitchGuide.vst3"
+    rm -rf "${VST3_DIR}/PitchGuide Live.vst3"
+    cp -r "$PAYLOAD/vst3/PitchGuide Live.vst3" "${VST3_DIR}/PitchGuide Live.vst3"
+    chown -R "${VST3_USER}:$(id -gn "${VST3_USER}")" "${VST3_DIR}/PitchGuide Live.vst3"
+    chmod -R u+rwX,go+rX "${VST3_DIR}/PitchGuide Live.vst3"
 fi
 
 mkdir -p /usr/share/applications /usr/share/icons/hicolor/512x512/apps
@@ -141,6 +152,7 @@ fi
 rm -rf "${INSTALL_PREFIX}"
 if [ -n "${VST3_HOME}" ]; then
     rm -rf "${VST3_HOME}/.vst3/PitchGuide.vst3"
+    rm -rf "${VST3_HOME}/.vst3/PitchGuide Live.vst3"
 fi
 rm -f /usr/local/bin/pitchguide
 rm -f /usr/share/applications/pitchguide.desktop
@@ -170,6 +182,7 @@ echo "PitchGuide ${VERSION} installed."
 echo "  Standalone: run 'pitchguide' or find PitchGuide in your applications menu."
 if [ -n "${VST3_HOME}" ]; then
     echo "  VST3 plugin: ${VST3_HOME}/.vst3/PitchGuide.vst3"
+    echo "  Karaoke:     ${VST3_HOME}/.vst3/PitchGuide Live.vst3"
 fi
 echo "  Uninstall:   sudo ${INSTALL_PREFIX}/uninstall.sh"
 INSTALL_EOF

@@ -87,6 +87,33 @@ public:
                          const LoadCompleteCallback &onComplete);
   void requestCancelLoading();
 
+  /**
+   * Reads an audio file the way the plug-in reads a take file: every channel,
+   * at the file's own sample rate. False if the file cannot be read.
+   */
+  static bool readAudioFileAsTake(const juce::File &file,
+                                  juce::AudioBuffer<float> &audio,
+                                  double &sampleRate);
+
+  /**
+   * Analyzes audio the way a captured take is analyzed (setHostAudioAsync
+   * runs exactly this): loads the models if needed, resamples to SAMPLE_RATE
+   * and runs analyzeAudio. Blocking. nullptr once isCancelled() returns true.
+   */
+  std::unique_ptr<Project> analyzeHostAudio(
+      const juce::AudioBuffer<float> &buffer, double sampleRate,
+      const ProgressCallback &onProgress,
+      const std::function<bool()> &isCancelled);
+
+  /**
+   * For callers that only want notes and pitch (PitchGuide Live): false makes
+   * analyzeAudio skip loading the vocoder, which note detection never uses.
+   */
+  void setAnalysisLoadsVocoder(bool shouldLoad)
+  {
+    analysisLoadsVocoder = shouldLoad;
+  }
+
   void resynthesizeIncrementalAsync(
       Project &project,
       const std::function<void(const juce::String &)> &onProgress,
@@ -131,6 +158,7 @@ private:
   SynthesisEngineType synthesisEngineType = defaultSynthesisEngineType();
   juce::String device = "CPU";
   int deviceId = 0;
+  bool analysisLoadsVocoder = true;
 
   std::atomic<bool> shuttingDown{false};
   std::atomic<bool> isReloadingModels{false};

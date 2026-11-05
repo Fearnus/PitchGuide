@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <limits>
 #include <mutex>
 
 EditorController::EditorController(bool enableAudioDevice)
@@ -456,60 +457,15 @@ void EditorController::setHostAudioAsync(
 
   loaderThread = std::thread([this, buffer, sampleRate, onProgress, onComplete, jobId]() mutable
                              {
-    if (cancelLoadingFlag.load() || hostAnalysisJobId.load() != jobId)
+    auto projectCopy = analyzeHostAudio(
+        buffer, sampleRate, onProgress, [this, jobId]() {
+          return cancelLoadingFlag.load() || hostAnalysisJobId.load() != jobId;
+        });
+    if (!projectCopy)
     {
       isLoadingAudio = false;
       return;
     }
-
-    if (!isSelectedPitchDetectorLoaded())
-    {
-      if (onProgress)
-        onProgress(0.05, TR("progress.loading"));
-      reloadInferenceModels(false);
-    }
-
-    if (cancelLoadingFlag.load() || hostAnalysisJobId.load() != jobId)
-    {
-      isLoadingAudio = false;
-      return;
-    }
-
-    juce::AudioBuffer<float> resampledBuffer;
-    const double inputSampleRate = sampleRate;
-    if (inputSampleRate > 0.0 &&
-        std::abs(inputSampleRate - static_cast<double>(SAMPLE_RATE)) > 1e-6) {
-      resampledBuffer = AudioResampler::resample(
-          buffer, inputSampleRate, static_cast<double>(SAMPLE_RATE));
-    }
-
-    const juce::AudioBuffer<float> &stored =
-        resampledBuffer.getNumSamples() > 0 ? resampledBuffer : buffer;
-    const double storedSampleRate = resampledBuffer.getNumSamples() > 0
-                                        ? static_cast<double>(SAMPLE_RATE)
-                                        : inputSampleRate;
-
-    auto projectCopy = std::make_unique<Project>();
-    projectCopy->getAudioData().waveform = stored;
-    projectCopy->getAudioData().sampleRate = static_cast<int>(storedSampleRate);
-
-    auto updateProgress = [&](double p, const juce::String &msg) {
-      if (cancelLoadingFlag.load() || hostAnalysisJobId.load() != jobId)
-        return;
-      if (onProgress)
-        onProgress(p, msg);
-    };
-
-    analyzeAudio(*projectCopy, updateProgress);
-
-    if (cancelLoadingFlag.load() || hostAnalysisJobId.load() != jobId)
-    {
-      isLoadingAudio = false;
-      return;
-    }
-
-    // Store pristine original waveform in AudioData for blend-based synthesis
-    projectCopy->getAudioData().originalWaveform.makeCopyOf(projectCopy->getAudioData().waveform);
 
     juce::AudioBuffer<float> originalWaveform;
     originalWaveform.makeCopyOf(projectCopy->getAudioData().waveform);
@@ -524,6 +480,80 @@ void EditorController::setHostAudioAsync(
           if (onComplete)
             onComplete(original);
         }); });
+}
+
+bool EditorController::readAudioFileAsTake(const juce::File &file,
+                                           juce::AudioBuffer<float> &audio,
+                                           double &sampleRate)
+{
+  juce::AudioFormatManager formats;
+  formats.registerBasicFormats();
+  std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+  if (reader == nullptr || reader->lengthInSamples <= 0 ||
+      reader->lengthInSamples > std::numeric_limits<int>::max() ||
+      reader->numChannels == 0)
+    return false;
+
+  const int numSamples = static_cast<int>(reader->lengthInSamples);
+  audio.setSize(static_cast<int>(reader->numChannels), numSamples);
+  if (!reader->read(&audio, 0, numSamples, 0, true, true))
+    return false;
+  sampleRate = reader->sampleRate;
+  return true;
+}
+
+std::unique_ptr<Project> EditorController::analyzeHostAudio(
+    const juce::AudioBuffer<float> &buffer, double sampleRate,
+    const ProgressCallback &onProgress,
+    const std::function<bool()> &isCancelled)
+{
+  auto cancelled = [&isCancelled]() { return isCancelled && isCancelled(); };
+  if (cancelled())
+    return nullptr;
+
+  if (!isSelectedPitchDetectorLoaded())
+  {
+    if (onProgress)
+      onProgress(0.05, TR("progress.loading"));
+    reloadInferenceModels(false);
+  }
+
+  if (cancelled())
+    return nullptr;
+
+  juce::AudioBuffer<float> resampledBuffer;
+  const double inputSampleRate = sampleRate;
+  if (inputSampleRate > 0.0 &&
+      std::abs(inputSampleRate - static_cast<double>(SAMPLE_RATE)) > 1e-6) {
+    resampledBuffer = AudioResampler::resample(
+        buffer, inputSampleRate, static_cast<double>(SAMPLE_RATE));
+  }
+
+  const juce::AudioBuffer<float> &stored =
+      resampledBuffer.getNumSamples() > 0 ? resampledBuffer : buffer;
+  const double storedSampleRate = resampledBuffer.getNumSamples() > 0
+                                      ? static_cast<double>(SAMPLE_RATE)
+                                      : inputSampleRate;
+
+  auto projectCopy = std::make_unique<Project>();
+  projectCopy->getAudioData().waveform = stored;
+  projectCopy->getAudioData().sampleRate = static_cast<int>(storedSampleRate);
+
+  auto updateProgress = [&](double p, const juce::String &msg) {
+    if (cancelled())
+      return;
+    if (onProgress)
+      onProgress(p, msg);
+  };
+
+  analyzeAudio(*projectCopy, updateProgress);
+
+  if (cancelled())
+    return nullptr;
+
+  // Store pristine original waveform in AudioData for blend-based synthesis
+  projectCopy->getAudioData().originalWaveform.makeCopyOf(projectCopy->getAudioData().waveform);
+  return projectCopy;
 }
 
 void EditorController::resynthesizeIncrementalAsync(
@@ -960,16 +990,17 @@ void EditorController::analyzeAudio(
   if (shuttingDown.load())
     return;
 
-  onProgress(0.375, TR("progress.loading_vocoder"));
   auto modelPath = PlatformPaths::getVocoderModelFile();
+  if (analysisLoadsVocoder)
+    onProgress(0.375, TR("progress.loading_vocoder"));
 
-  if (!modelPath.exists() && !vocoder->isLoaded())
+  if (analysisLoadsVocoder && !modelPath.exists() && !vocoder->isLoaded())
   {
     showMissingModelAndAbort(TR("error.vocoder_model_name"), modelPath);
     return;
   }
 
-  if (modelPath.exists() && !vocoder->isLoaded())
+  if (analysisLoadsVocoder && modelPath.exists() && !vocoder->isLoaded())
   {
     if (vocoder->loadModel(modelPath))
     {
