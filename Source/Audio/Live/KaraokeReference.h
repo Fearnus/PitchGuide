@@ -49,9 +49,10 @@ struct KaraokeReference
      * time, in signed semitones (positive = sung too high), transpose applied.
      * Measured to the note or to the reference's own pitch there, whichever
      * is closer: a singer copying the reference's slides and vibrato matches
-     * it as well as one holding the note. NaN where the reference has no note.
+     * it as well as one holding the note. Empty where the reference has no note.
      */
-    float pitchErrorAt(double referenceSeconds, float sungMidi, float transpose) const;
+    std::optional<float> pitchErrorAt(double referenceSeconds, float sungMidi,
+                                      float transpose) const;
 
     /** Notes and curve of an analysed take. */
     static KaraokeReference fromProject(const Project &project,

@@ -213,7 +213,7 @@ void testTrailRecordsOverwritesAndScores()
     CHECK(!trail.isEmpty());
     CHECK(std::abs(trail.slotValue(SungPitchTrail::slotAt(1.2)) - 60.2f) < 1.0e-4f);
     CHECK(std::abs(trail.slotValue(SungPitchTrail::slotAt(1.8)) - 61.5f) < 1.0e-4f);
-    CHECK(std::isnan(trail.slotValue(SungPitchTrail::slotAt(0.5))));
+    CHECK(!SungPitchTrail::isRecorded(trail.slotValue(SungPitchTrail::slotAt(0.5))));
 
     KaraokeReference reference;
     reference.frameSeconds = static_cast<double>(HOP_SIZE) / SAMPLE_RATE;
@@ -243,9 +243,9 @@ void testTrailRecordsOverwritesAndScores()
     }
     score = trail.score(sliding, 0.0, 0.0f, 50.0f);
     CHECK(score.accuracy() > 0.98f);
-    CHECK(std::abs(sliding.pitchErrorAt(1.8, 61.4f, 0.0f) + 0.1f) < 1.0e-4f);
-    CHECK(std::abs(sliding.pitchErrorAt(1.2, 60.3f, 0.0f) - 0.3f) < 1.0e-4f);
-    CHECK(std::isnan(sliding.pitchErrorAt(2.2, 60.0f, 0.0f)));
+    CHECK(std::abs(*sliding.pitchErrorAt(1.8, 61.4f, 0.0f) + 0.1f) < 1.0e-4f);
+    CHECK(std::abs(*sliding.pitchErrorAt(1.2, 60.3f, 0.0f) - 0.3f) < 1.0e-4f);
+    CHECK(!sliding.pitchErrorAt(2.2, 60.0f, 0.0f).has_value());
 
     // A reference placed 10 s later has nothing sung under it.
     score = trail.score(reference, 10.0, 0.0f, 50.0f);
@@ -263,7 +263,7 @@ void testTrailRecordsOverwritesAndScores()
     trail.add(frameAt(5.012, 62.0f));
     CHECK(std::abs(trail.slotValue(SungPitchTrail::slotAt(5.006)) - 62.0f) < 1.0e-4f);
     trail.add(frameAt(7.0, 64.0f));
-    CHECK(std::isnan(trail.slotValue(SungPitchTrail::slotAt(6.0))));
+    CHECK(!SungPitchTrail::isRecorded(trail.slotValue(SungPitchTrail::slotAt(6.0))));
 
     // Latency compensation moves the voice earlier.
     trail.clear();

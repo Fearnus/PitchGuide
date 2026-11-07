@@ -43,12 +43,12 @@ enum class Accuracy
     Off
 };
 
-/** errorSemitones as KaraokeReference::pitchErrorAt reports it: NaN = no note. */
-Accuracy classify(float errorSemitones, float toleranceSemitones)
+/** errorSemitones as KaraokeReference::pitchErrorAt reports it: empty = no note. */
+Accuracy classify(std::optional<float> errorSemitones, float toleranceSemitones)
 {
-    if (std::isnan(errorSemitones))
+    if (!errorSemitones)
         return Accuracy::NoTarget;
-    const float distance = std::abs(errorSemitones);
+    const float distance = std::abs(*errorSemitones);
     if (distance <= toleranceSemitones)
         return Accuracy::InTune;
     if (distance <= 2.0f * toleranceSemitones)
@@ -138,7 +138,7 @@ float KaraokeView::targetAt(double hostSeconds) const
     return note != nullptr ? note->midi + static_cast<float>(processor.getTranspose()) : 0.0f;
 }
 
-float KaraokeView::errorAt(double hostSeconds, float sungMidi) const
+std::optional<float> KaraokeView::errorAt(double hostSeconds, float sungMidi) const
 {
     return processor.getReference().pitchErrorAt(
         hostSeconds - processor.getOptions().referenceStartSeconds, sungMidi,
@@ -498,7 +498,7 @@ void KaraokeView::drawLiveVoice(juce::Graphics &g) const
         return;
 
     const float sung = processor.getLatestFrame().midi;
-    const float error = errorAt(viewSeconds, sung);
+    const auto error = errorAt(viewSeconds, sung);
     const float tolerance = processor.getOptions().toleranceCents / 100.0f;
     const auto colour = colourFor(classify(error, tolerance));
     const juce::Point<float> centre(nowX(), midiToY(sung));
@@ -509,7 +509,7 @@ void KaraokeView::drawLiveVoice(juce::Graphics &g) const
     g.fillEllipse(juce::Rectangle<float>(13.0f, 13.0f).withCentre(centre));
 
     // Cents from the reference, or from the nearest semitone without one.
-    const float offset = std::isnan(error) ? sung - std::round(sung) : error;
+    const float offset = error ? *error : sung - std::round(sung);
     const int cents = juce::jlimit(-999, 999, static_cast<int>(std::lround(offset * 100.0f)));
     const juce::String text = noteName(sung) + "  " + (cents > 0 ? "+" : "") + juce::String(cents) +
                               juce::String::fromUTF8("\xc2\xa2");
