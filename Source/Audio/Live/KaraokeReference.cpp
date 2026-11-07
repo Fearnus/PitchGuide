@@ -46,12 +46,12 @@ float KaraokeReference::curveAt(double referenceSeconds) const
     return index < curveMidi.size() ? curveMidi[index] : 0.0f;
 }
 
-float KaraokeReference::pitchErrorAt(double referenceSeconds, float sungMidi,
-                                     float transpose) const
+std::optional<float> KaraokeReference::pitchErrorAt(double referenceSeconds, float sungMidi,
+                                                    float transpose) const
 {
     const auto *note = noteAt(referenceSeconds);
     if (note == nullptr)
-        return std::numeric_limits<float>::quiet_NaN();
+        return std::nullopt;
     float error = sungMidi - (note->midi + transpose);
     const float curve = curveAt(referenceSeconds);
     if (curve > 0.0f)
@@ -157,7 +157,8 @@ std::optional<KaraokeReference> KaraokeReference::fromMemoryBlock(const juce::Me
     for (auto &value : reference.curveMidi)
         value = in.readFloat();
 
-    if (!(reference.frameSeconds > 0.0) || !std::isfinite(reference.frameSeconds))
+    // Plain range check: -ffast-math builds drop isfinite().
+    if (!(reference.frameSeconds > 1.0e-4 && reference.frameSeconds < 1.0))
         return std::nullopt;
     return reference;
 }

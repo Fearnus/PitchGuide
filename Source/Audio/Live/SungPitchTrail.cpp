@@ -37,7 +37,7 @@ void SungPitchTrail::add(const LivePitchFrame &frame, double timeOffsetSeconds)
         constexpr int kGrowSlots = static_cast<int>(60.0 / kSlotSeconds);
         const size_t newSize =
             (static_cast<size_t>(slot) / kGrowSlots + 1) * static_cast<size_t>(kGrowSlots);
-        slots.resize(newSize, std::numeric_limits<float>::quiet_NaN());
+        slots.resize(newSize, kNotRecorded);
     }
 
     const float value = frame.isVoiced() ? frame.midi : 0.0f;
@@ -81,15 +81,15 @@ SungPitchTrail::Score SungPitchTrail::score(const KaraokeReference &reference,
             if (centre < start || centre >= end)
                 continue;
             const float sung = slots[static_cast<size_t>(slot)];
-            if (std::isnan(sung))
+            if (!isRecorded(sung))
                 continue;
             result.noteSeconds += kSlotSeconds;
             if (sung <= 0.0f)
                 continue;
             result.voicedSeconds += kSlotSeconds;
-            const float error = reference.pitchErrorAt(centre - referenceStartSeconds, sung,
-                                                       transposeSemitones);
-            if (std::abs(error) <= tolerance)
+            const auto error = reference.pitchErrorAt(centre - referenceStartSeconds, sung,
+                                                      transposeSemitones);
+            if (error && std::abs(*error) <= tolerance)
                 result.inTuneSeconds += kSlotSeconds;
         }
     }

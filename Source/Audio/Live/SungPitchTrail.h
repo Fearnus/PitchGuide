@@ -10,8 +10,8 @@
 /**
  * What the singer sang, on the host timeline, in fixed 5 ms slots.
  *
- * A slot holds the sung pitch (MIDI), 0 for "sang nothing" and NaN for "the
- * transport never passed here". Slots are addressed by time, so singing a
+ * A slot holds the sung pitch (MIDI), 0 for "sang nothing" and kNotRecorded
+ * for "the transport never passed here". Slots are addressed by time, so singing a
  * passage again simply overwrites the previous attempt - the usual way to
  * practise a part in a DAW is to loop it.
  *
@@ -31,13 +31,19 @@ public:
         stopped transport are ignored. */
     void add(const LivePitchFrame &frame, double timeOffsetSeconds = 0.0);
 
-    /** Pitch sung at a slot: NaN = nothing recorded, 0 = unvoiced. */
+    /** Slot value for "the transport never passed here". Not NaN: the core
+        library builds with -ffast-math on GCC/Clang, which assumes there are
+        no NaNs and compiles NaN checks away. */
+    static constexpr float kNotRecorded = -1.0f;
+
+    /** Pitch sung at a slot: kNotRecorded, 0 = unvoiced, else MIDI. */
     float slotValue(int slot) const
     {
         return slot >= 0 && static_cast<size_t>(slot) < slots.size()
                    ? slots[static_cast<size_t>(slot)]
-                   : std::numeric_limits<float>::quiet_NaN();
+                   : kNotRecorded;
     }
+    static bool isRecorded(float slotValue) { return slotValue >= 0.0f; }
     static int slotAt(double seconds)
     {
         return static_cast<int>(std::floor(seconds / kSlotSeconds));

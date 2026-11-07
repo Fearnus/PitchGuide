@@ -2,6 +2,8 @@
 
 #include "../JuceHeader.h"
 
+#include <optional>
+
 class PitchGuideLiveProcessor;
 
 /**
@@ -46,7 +48,7 @@ private:
     /** Target MIDI (transpose applied) at a host time, 0 in a gap. */
     float targetAt(double hostSeconds) const;
     /** KaraokeReference::pitchErrorAt at a host time. */
-    float errorAt(double hostSeconds, float sungMidi) const;
+    std::optional<float> errorAt(double hostSeconds, float sungMidi) const;
     bool hasRecentVoice() const;
     void updatePitchRange();
 
