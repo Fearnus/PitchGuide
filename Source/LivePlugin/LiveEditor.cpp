@@ -106,6 +106,170 @@ private:
     juce::Slider start, latency, tolerance, gate;
     juce::TextButton usePlayhead{"Use playhead"};
 };
+
+/** Paste or edit the lyrics, and nudge their timing. */
+class LyricsPanel : public juce::Component, private juce::Timer
+{
+public:
+    LyricsPanel(PitchGuideLiveProcessor &p, std::function<void()> chooseFileFn)
+        : processor(p), chooseFile(std::move(chooseFileFn))
+    {
+        title.setText("Lyrics", juce::dontSendNotification);
+        title.setFont(AppFont::getBoldFont(16.0f));
+        addAndMakeVisible(title);
+
+        hint.setText("Paste synced lyrics (LRC, e.g. from lrclib.net) or plain text. Each line "
+                     "is snapped to the phrase the reference sings and each syllable to its "
+                     "note; plain text is laid onto the reference's phrases.",
+                     juce::dontSendNotification);
+        hint.setFont(AppFont::getFont(12.5f));
+        hint.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.6f));
+        hint.setJustificationType(juce::Justification::topLeft);
+        addAndMakeVisible(hint);
+
+        text.setMultiLine(true, false);
+        text.setReturnKeyStartsNewLine(true);
+        text.setScrollbarsShown(true);
+        text.setFont(AppFont::getFont(13.5f));
+        text.setTextToShowWhenEmpty("[00:12.00]And here I go, losing my control...",
+                                    juce::Colours::white.withAlpha(0.3f));
+        addAndMakeVisible(text);
+
+        paste.setTooltip("Replace the lyrics with what is on the clipboard");
+        paste.onClick = [this]() {
+            text.setText(juce::SystemClipboard::getTextFromClipboard(), false);
+            apply();
+        };
+        open.setTooltip("Load an .lrc or .txt file. You can also drop it on the window.");
+        open.onClick = [this]() {
+            if (chooseFile)
+                chooseFile();
+        };
+        applyButton.onClick = [this]() { apply(); };
+        clear.onClick = [this]() {
+            text.clear();
+            apply();
+        };
+        for (auto *button : {&paste, &open, &applyButton, &clear})
+            addAndMakeVisible(*button);
+
+        offsetLabel.setText("Offset", juce::dontSendNotification);
+        offsetLabel.setFont(AppFont::getFont(13.0f));
+        offsetLabel.setTooltip("Moves the lyrics later (+) or earlier (-) when the file was "
+                               "made for another version of the song.");
+        addAndMakeVisible(offsetLabel);
+        offset.setSliderStyle(juce::Slider::LinearHorizontal);
+        offset.setTextBoxStyle(juce::Slider::TextBoxRight, false, 80, 22);
+        offset.setRange(-30.0, 30.0, 0.01);
+        offset.setTextValueSuffix(" s");
+        offset.setDoubleClickReturnValue(true, 0.0);
+        offset.setTooltip(offsetLabel.getTooltip());
+        offset.onValueChange = [this]() {
+            auto options = processor.getOptions();
+            options.lyricsOffsetSeconds = offset.getValue();
+            processor.setOptions(options);
+        };
+        addAndMakeVisible(offset);
+        autoSync.setTooltip("Line the lyrics up with the phrases of the reference vocal");
+        autoSync.onClick = [this]() { processor.autoSyncLyrics(); };
+        addAndMakeVisible(autoSync);
+
+        status.setFont(AppFont::getFont(12.5f));
+        status.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.7f));
+        addAndMakeVisible(status);
+
+        refresh(true);
+        setSize(560, 470);
+        startTimerHz(8);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(14, 12);
+        title.setBounds(area.removeFromTop(24));
+        hint.setBounds(area.removeFromTop(48));
+        area.removeFromTop(4);
+
+        auto bottom = area.removeFromBottom(22);
+        status.setBounds(bottom);
+        area.removeFromBottom(8);
+        auto offsetRow = area.removeFromBottom(28);
+        offsetLabel.setBounds(offsetRow.removeFromLeft(60));
+        autoSync.setBounds(offsetRow.removeFromRight(90));
+        offsetRow.removeFromRight(8);
+        offset.setBounds(offsetRow);
+        area.removeFromBottom(8);
+        auto buttons = area.removeFromBottom(28);
+        paste.setBounds(buttons.removeFromLeft(80));
+        buttons.removeFromLeft(6);
+        open.setBounds(buttons.removeFromLeft(100));
+        clear.setBounds(buttons.removeFromRight(70));
+        buttons.removeFromRight(6);
+        applyButton.setBounds(buttons.removeFromRight(80));
+        area.removeFromBottom(8);
+        text.setBounds(area);
+    }
+
+private:
+    void apply()
+    {
+        processor.setLyricsText(text.getText());
+        refresh(true);
+    }
+
+    void timerCallback() override { refresh(false); }
+
+    void refresh(bool force)
+    {
+        if (!force && processor.getLyricsRevision() == shownRevision)
+            return;
+        shownRevision = processor.getLyricsRevision();
+        // Lyrics loaded from a file or dropped on the window show up here.
+        if (processor.getLyricsText() != shownText)
+        {
+            shownText = processor.getLyricsText();
+            if (text.getText().trim() != shownText)
+                text.setText(shownText, false);
+        }
+        offset.setValue(processor.getOptions().lyricsOffsetSeconds, juce::dontSendNotification);
+
+        const auto &lyrics = processor.getLyrics();
+        const bool haveReference = processor.getReference().isLoaded();
+        const bool plain = lyrics.sourceTiming == KaraokeLyrics::SourceTiming::None;
+        offset.setEnabled(!lyrics.isEmpty() && !plain);
+        autoSync.setEnabled(!lyrics.isEmpty() && !plain && haveReference);
+
+        juce::String message;
+        if (lyrics.isEmpty())
+            message = "No lyrics.";
+        else
+        {
+            const int lines = static_cast<int>(lyrics.lines.size());
+            message << lines << (lines == 1 ? " line, " : " lines, ")
+                    << (plain ? "plain text"
+                              : lyrics.sourceTiming == KaraokeLyrics::SourceTiming::Words
+                                    ? "timed per word"
+                                    : "timed per line");
+            if (plain && !haveReference)
+                message << ". Load the reference vocal to place them.";
+            else if (!haveReference)
+                message << ". No reference: syllables are spread evenly.";
+            else
+                message << ". " << lyrics.numTimedLines() << " placed on the reference.";
+        }
+        status.setText(message, juce::dontSendNotification);
+    }
+
+    PitchGuideLiveProcessor &processor;
+    std::function<void()> chooseFile;
+    juce::Label title, hint, offsetLabel, status;
+    juce::TextEditor text;
+    juce::TextButton paste{"Paste"}, open{"Open file..."}, applyButton{"Apply"}, clear{"Clear"},
+        autoSync{"Auto-sync"};
+    juce::Slider offset;
+    int shownRevision = -1;
+    juce::String shownText;
+};
 } // namespace
 
 PitchGuideLiveEditor::PitchGuideLiveEditor(PitchGuideLiveProcessor &p)
@@ -120,6 +284,11 @@ PitchGuideLiveEditor::PitchGuideLiveEditor(PitchGuideLiveProcessor &p)
     loadButton.setTooltip("Choose an isolated vocal of the song (wav, flac, mp3...). "
                           "You can also drop it on the window.");
     addAndMakeVisible(loadButton);
+
+    lyricsButton.onClick = [this]() { showLyrics(); };
+    lyricsButton.setTooltip("Paste or load the song's lyrics (LRC or plain text). You can "
+                            "also drop an .lrc or .txt file on the window.");
+    addAndMakeVisible(lyricsButton);
 
     referenceLabel.setFont(AppFont::getFont(13.0f));
     referenceLabel.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.75f));
@@ -223,6 +392,8 @@ void PitchGuideLiveEditor::resized()
     auto header = bounds.removeFromTop(kHeaderHeight).reduced(12, 10);
     header.removeFromLeft(140); // title
     loadButton.setBounds(header.removeFromLeft(132));
+    header.removeFromLeft(6);
+    lyricsButton.setBounds(header.removeFromLeft(64));
     header.removeFromLeft(10);
 
     settingsButton.setBounds(header.removeFromRight(84));
@@ -312,6 +483,27 @@ void PitchGuideLiveEditor::chooseReference()
                          });
 }
 
+void PitchGuideLiveEditor::chooseLyricsFile()
+{
+    chooser = std::make_unique<juce::FileChooser>(
+        "Choose the song's lyrics", juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+        "*.lrc;*.txt");
+    chooser->launchAsync(juce::FileBrowserComponent::openMode |
+                             juce::FileBrowserComponent::canSelectFiles,
+                         [this](const juce::FileChooser &fc) {
+                             const auto file = fc.getResult();
+                             if (file.existsAsFile())
+                                 liveProcessor.loadLyricsFile(file);
+                         });
+}
+
+void PitchGuideLiveEditor::showLyrics()
+{
+    juce::CallOutBox::launchAsynchronously(
+        std::make_unique<LyricsPanel>(liveProcessor, [this]() { chooseLyricsFile(); }),
+        lyricsButton.getBounds(), this);
+}
+
 void PitchGuideLiveEditor::mouseDoubleClick(const juce::MouseEvent &event)
 {
     if (event.eventComponent == &transposeValue)
@@ -332,9 +524,14 @@ bool PitchGuideLiveEditor::isAudioFile(const juce::String &path)
     return juce::File(path).hasFileExtension("wav;flac;mp3;ogg;aif;aiff;m4a;wma");
 }
 
+bool PitchGuideLiveEditor::isLyricsFile(const juce::String &path)
+{
+    return juce::File(path).hasFileExtension("lrc;txt");
+}
+
 bool PitchGuideLiveEditor::isInterestedInFileDrag(const juce::StringArray &files)
 {
-    return files.size() == 1 && isAudioFile(files[0]);
+    return files.size() == 1 && (isAudioFile(files[0]) || isLyricsFile(files[0]));
 }
 
 void PitchGuideLiveEditor::fileDragEnter(const juce::StringArray &, int, int)
@@ -352,5 +549,7 @@ void PitchGuideLiveEditor::filesDropped(const juce::StringArray &files, int, int
     view.setDropHighlight(false);
     if (files.size() == 1 && isAudioFile(files[0]))
         liveProcessor.loadReference(juce::File(files[0]));
+    else if (files.size() == 1 && isLyricsFile(files[0]))
+        liveProcessor.loadLyricsFile(juce::File(files[0]));
     updateHeader();
 }

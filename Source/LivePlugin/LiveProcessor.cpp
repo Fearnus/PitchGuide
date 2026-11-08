@@ -194,16 +194,21 @@ void PitchGuideLiveProcessor::setTranspose(int semitones)
 
 void PitchGuideLiveProcessor::setOptions(const Options &newOptions)
 {
+    const bool lyricsMoved = newOptions.lyricsOffsetSeconds != options.lyricsOffsetSeconds;
     options = newOptions;
+    options.lyricsOffsetSeconds = juce::jlimit(-120.0, 120.0, options.lyricsOffsetSeconds);
     options.toleranceCents = juce::jlimit(5.0f, 200.0f, options.toleranceCents);
     options.latencyMs = juce::jlimit(0.0f, 1000.0f, options.latencyMs);
     options.gateDb = juce::jlimit(-90.0f, 0.0f, options.gateDb);
     gateDb.store(options.gateDb);
+    if (lyricsMoved)
+        retimeLyrics();
     updateSavedState();
 }
 
-void PitchGuideLiveProcessor::loadReference(const juce::File &file)
+void PitchGuideLiveProcessor::loadReference(const juce::File &file, bool syncLyrics)
 {
+    syncLyricsWhenAnalysed = syncLyrics;
     lastError.clear();
     analysisProgress = 0.0;
     analysisMessage = "Analysing " + file.getFileName();
@@ -220,7 +225,7 @@ void PitchGuideLiveProcessor::loadReference(const juce::File &file)
             analysisJob.reset();
             analysingFile = juce::File();
             if (result)
-                applyReference(std::move(*result));
+                applyReference(std::move(*result), syncLyricsWhenAnalysed);
             else
                 lastError = error;
             updateSavedState();
@@ -234,22 +239,66 @@ void PitchGuideLiveProcessor::clearReference()
     analysingFile = juce::File();
     reference = KaraokeReference();
     lastError.clear();
+    retimeLyrics();
     updateSavedState();
 }
 
-void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference)
+void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference, bool syncLyrics)
 {
     reference = std::move(newReference);
     lastError.clear();
     // The old attempt was sung against another song.
     trail.clear();
+    if (!syncLyrics || !autoSyncLyrics())
+        retimeLyrics();
     updateSavedState();
+}
+
+void PitchGuideLiveProcessor::setLyricsText(const juce::String &text)
+{
+    lyricsText = text.trim();
+    lyrics = KaraokeLyrics::parse(lyricsText);
+    options.lyricsOffsetSeconds = 0.0;
+    // New lyrics get lined up with the reference as soon as there is one.
+    syncLyricsWhenAnalysed = true;
+    if (!autoSyncLyrics())
+        retimeLyrics();
+    updateSavedState();
+}
+
+bool PitchGuideLiveProcessor::loadLyricsFile(const juce::File &file)
+{
+    if (!file.existsAsFile() || file.getSize() > 1024 * 1024)
+        return false;
+    setLyricsText(file.loadFileAsString());
+    return true;
+}
+
+bool PitchGuideLiveProcessor::autoSyncLyrics()
+{
+    if (lyrics.isEmpty() || lyrics.sourceTiming == KaraokeLyrics::SourceTiming::None ||
+        !reference.isLoaded())
+        return false;
+    // Only move lyrics that clearly fit better elsewhere: most LRC files are
+    // already right for the album version.
+    const auto offset = lyrics.estimateOffset(reference, true);
+    options.lyricsOffsetSeconds = offset.value_or(0.0);
+    retimeLyrics();
+    updateSavedState();
+    return true;
+}
+
+void PitchGuideLiveProcessor::retimeLyrics()
+{
+    lyrics.applyTiming(reference.isLoaded() ? &reference : nullptr, options.lyricsOffsetSeconds);
+    ++lyricsRevision;
 }
 
 void PitchGuideLiveProcessor::updateSavedState()
 {
     const juce::ScopedLock lock(stateLock);
     savedOptions = options;
+    savedLyricsText = lyricsText;
     if (reference.isLoaded())
     {
         savedReferencePath = reference.sourcePath;
@@ -281,6 +330,7 @@ void PitchGuideLiveProcessor::getStateInformation(juce::MemoryBlock &destData)
         xml.setAttribute("pixelsPerSecond", savedOptions.pixelsPerSecond);
         xml.setAttribute("editorWidth", savedOptions.editorWidth);
         xml.setAttribute("editorHeight", savedOptions.editorHeight);
+        xml.setAttribute("lyricsOffset", savedOptions.lyricsOffsetSeconds);
         if (savedReferencePath.isNotEmpty())
         {
             auto *element = xml.createNewChildElement("Reference");
@@ -288,6 +338,8 @@ void PitchGuideLiveProcessor::getStateInformation(juce::MemoryBlock &destData)
             if (savedReferenceData.isNotEmpty())
                 element->addTextElement(savedReferenceData);
         }
+        if (savedLyricsText.isNotEmpty())
+            xml.createNewChildElement("Lyrics")->addTextElement(savedLyricsText);
     }
     if (auto parameterXml = parameters.copyState().createXml())
         xml.addChildElement(parameterXml.release());
@@ -316,7 +368,16 @@ void PitchGuideLiveProcessor::setStateInformation(const void *data, int sizeInBy
             xml->getDoubleAttribute("pixelsPerSecond", restored.pixelsPerSecond));
         restored.editorWidth = xml->getIntAttribute("editorWidth", restored.editorWidth);
         restored.editorHeight = xml->getIntAttribute("editorHeight", restored.editorHeight);
+        restored.lyricsOffsetSeconds = xml->getDoubleAttribute("lyricsOffset", 0.0);
+
+        // Saved lyrics come back with their saved offset, not synced again.
+        auto *lyricsElement = xml->getChildByName("Lyrics");
+        lyricsText = lyricsElement != nullptr ? lyricsElement->getAllSubText().trim()
+                                              : juce::String();
+        lyrics = KaraokeLyrics::parse(lyricsText);
+        syncLyricsWhenAnalysed = false;
         setOptions(restored);
+        retimeLyrics();
 
         if (auto *element = xml->getChildByName("Reference"))
         {
@@ -327,9 +388,9 @@ void PitchGuideLiveProcessor::setStateInformation(const void *data, int sizeInBy
             if (text.isNotEmpty() && block.fromBase64Encoding(text))
                 restoredReference = KaraokeReference::fromMemoryBlock(block);
             if (restoredReference && restoredReference->isLoaded())
-                applyReference(std::move(*restoredReference));
+                applyReference(std::move(*restoredReference), false);
             else if (juce::File::isAbsolutePath(path) && juce::File(path).existsAsFile())
-                loadReference(juce::File(path));
+                loadReference(juce::File(path), false);
         }
     };
 

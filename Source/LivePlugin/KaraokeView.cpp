@@ -21,6 +21,9 @@ const juce::Colour kInTune(0xFF3DDC84u);
 const juce::Colour kNear(0xFFFFD34Eu);
 const juce::Colour kOff(0xFFFF5C5Cu);
 const juce::Colour kNoTarget(0xFFB9A8FFu);
+const juce::Colour kLyricsBackground(0xFF0C0E12u);
+const juce::Colour kLyricsUnsung(0xFF6E7587u);
+const juce::Colour kLyricsNext(0xFF464C5Au);
 
 constexpr double kLiveVoiceMaxAgeMs = 150.0;
 
@@ -94,9 +97,23 @@ void KaraokeView::setDropHighlight(bool shouldHighlight)
 
 // ---- Geometry --------------------------------------------------------------
 
+float KaraokeView::lyricsBandHeight() const
+{
+    if (!processor.getLyrics().isTimed())
+        return 0.0f;
+    return juce::jlimit(64.0f, 150.0f, static_cast<float>(getHeight()) * 0.24f);
+}
+
 juce::Rectangle<float> KaraokeView::rollArea() const
 {
-    return getLocalBounds().toFloat().withTrimmedLeft(kKeysWidth);
+    return getLocalBounds().toFloat().withTrimmedLeft(kKeysWidth).withTrimmedBottom(
+        lyricsBandHeight());
+}
+
+juce::Rectangle<float> KaraokeView::lyricsArea() const
+{
+    auto bounds = getLocalBounds().toFloat();
+    return bounds.removeFromBottom(lyricsBandHeight());
 }
 
 float KaraokeView::nowX() const
@@ -260,6 +277,7 @@ void KaraokeView::paint(juce::Graphics &g)
         drawLanes(g);
         drawTimeGrid(g);
         drawNotes(g);
+        drawSectionLabels(g);
         // Stopped, the recorded attempt steps back behind the tuner trail.
         const bool playing = processor.isHostPlaying();
         drawSungTrail(g, playing ? 1.0f : 0.35f);
@@ -269,6 +287,7 @@ void KaraokeView::paint(juce::Graphics &g)
         drawLiveVoice(g);
     }
     drawKeys(g);
+    drawLyrics(g);
     drawOverlay(g);
 }
 
@@ -349,6 +368,8 @@ void KaraokeView::drawNotes(juce::Graphics &g) const
         g.setColour(outline);
         g.drawRoundedRectangle(bar, corner, outlineWidth);
     }
+
+    drawSyllableLabels(g, barHeight);
 
     // The reference's own pitch, thin, over the bars: slides and vibrato.
     if (reference.frameSeconds <= 0.0 || reference.curveMidi.empty())
@@ -529,8 +550,10 @@ void KaraokeView::drawLiveVoice(juce::Graphics &g) const
 
 void KaraokeView::drawKeys(juce::Graphics &g) const
 {
-    const auto bounds = getLocalBounds().toFloat();
-    const juce::Rectangle<float> keys(bounds.getX(), bounds.getY(), kKeysWidth, bounds.getHeight());
+    const auto roll = rollArea();
+    const juce::Rectangle<float> keys(0.0f, roll.getY(), kKeysWidth, roll.getHeight());
+    juce::Graphics::ScopedSaveState state(g);
+    g.reduceClipRegion(keys.toNearestInt());
     g.setColour(juce::Colour(0xFF0E1015u));
     g.fillRect(keys);
 
@@ -574,6 +597,181 @@ void KaraokeView::drawKeys(juce::Graphics &g) const
     }
     g.setColour(juce::Colour(0xFF2A2E38u));
     g.drawVerticalLine(static_cast<int>(kKeysWidth) - 1, keys.getY(), keys.getBottom());
+}
+
+void KaraokeView::drawSyllableLabels(juce::Graphics &g, float barHeight) const
+{
+    const auto &lyrics = processor.getLyrics();
+    const auto &reference = processor.getReference();
+    if (!lyrics.isTimed() || !reference.isLoaded())
+        return;
+
+    const double start = processor.getOptions().referenceStartSeconds;
+    const double from = visibleStartSeconds() - start;
+    const double to = visibleEndSeconds() - start;
+    const float transpose = static_cast<float>(processor.getTranspose());
+    const auto font = AppFont::getFont(juce::jlimit(10.0f, 13.0f, barHeight * 0.9f));
+    g.setFont(font);
+
+    // Syllables sharing a note are written together on it.
+    int labelNote = -1;
+    juce::String labelText;
+    float lastRight = std::numeric_limits<float>::lowest();
+    auto flush = [&]() {
+        if (labelNote < 0 || labelNote >= static_cast<int>(reference.notes.size()) ||
+            labelText.isEmpty())
+            return;
+        const auto &note = reference.notes[static_cast<size_t>(labelNote)];
+        const float x = timeToX(note.startSeconds + start) + 1.0f;
+        if (x < lastRight + 4.0f)
+            return; // too crowded: the line below has it anyway
+        const float width = juce::GlyphArrangement::getStringWidth(font, labelText) + 2.0f;
+        const float top = midiToY(note.midi + transpose) - 0.5f * barHeight - font.getHeight() - 1.0f;
+        const bool past = note.endSeconds + start < viewSeconds;
+        const bool current = !past && note.startSeconds + start <= viewSeconds;
+        g.setColour(juce::Colours::white.withAlpha(current ? 0.95f : past ? 0.3f : 0.7f));
+        g.drawText(labelText, juce::Rectangle<float>(x, top, width, font.getHeight()),
+                   juce::Justification::centredLeft, false);
+        lastRight = x + width;
+    };
+
+    for (const auto &line : lyrics.lines)
+    {
+        if (!line.isTimed() || line.endSeconds < from || line.startSeconds > to)
+            continue;
+        for (int i = 0; i < static_cast<int>(line.syllables.size()); ++i)
+        {
+            const int note = line.syllables[static_cast<size_t>(i)].note;
+            if (note < 0)
+                continue;
+            const auto text = line.syllableText(i)
+                                  .trimCharactersAtStart(",.!?;:\"()[]-")
+                                  .trimCharactersAtEnd(",.!?;:\"()[]-");
+            if (note == labelNote)
+            {
+                labelText += text;
+                continue;
+            }
+            flush();
+            labelNote = note;
+            labelText = text;
+        }
+    }
+    flush();
+}
+
+void KaraokeView::drawSectionLabels(juce::Graphics &g) const
+{
+    const auto &lyrics = processor.getLyrics();
+    const auto roll = rollArea();
+    const double start = processor.getOptions().referenceStartSeconds;
+    g.setFont(AppFont::getBoldFont(15.0f));
+    g.setColour(juce::Colours::white.withAlpha(0.32f));
+    for (const auto &line : lyrics.lines)
+    {
+        if (line.section.isEmpty() || !line.isTimed())
+            continue;
+        const float x = timeToX(line.startSeconds + start);
+        if (x > roll.getRight() || x < roll.getX() - 240.0f)
+            continue;
+        g.drawText(line.section, juce::Rectangle<float>(x + 4.0f, roll.getY() + 8.0f, 240.0f, 20.0f),
+                   juce::Justification::centredLeft, true);
+    }
+}
+
+void KaraokeView::drawLyrics(juce::Graphics &g) const
+{
+    const auto area = lyricsArea();
+    if (area.isEmpty())
+        return;
+    g.setColour(kLyricsBackground);
+    g.fillRect(area);
+    g.setColour(juce::Colour(0xFF262A34u));
+    g.drawHorizontalLine(static_cast<int>(area.getY()), area.getX(), area.getRight());
+
+    const auto &lyrics = processor.getLyrics();
+    const double now = viewSeconds - processor.getOptions().referenceStartSeconds;
+    const int current = lyrics.currentLineAt(now);
+    if (current < 0)
+        return;
+    const auto &line = lyrics.lines[static_cast<size_t>(current)];
+
+    auto content = area.reduced(20.0f, area.getHeight() * 0.08f);
+    const auto mainRow = content.removeFromTop(content.getHeight() * 0.6f);
+    const float left = drawLyricLine(g, line, now, mainRow, mainRow.getHeight() * 0.72f, true);
+
+    const int next = lyrics.nextTimedLine(current);
+    if (next >= 0)
+        drawLyricLine(g, lyrics.lines[static_cast<size_t>(next)], now, content,
+                      content.getHeight() * 0.68f, false);
+
+    // After a long break, count the singer in: one dot per second to go.
+    const int previous = lyrics.previousTimedLine(current);
+    const double breakStart = previous >= 0 ? lyrics.lines[static_cast<size_t>(previous)].endSeconds
+                                            : -std::numeric_limits<double>::infinity();
+    const double toGo = line.startSeconds - now;
+    if (toGo > 0.0 && toGo <= 3.0 && line.startSeconds - breakStart >= 4.0)
+    {
+        const int lit = static_cast<int>(std::ceil(toGo));
+        const float size = juce::jlimit(6.0f, 11.0f, mainRow.getHeight() * 0.14f);
+        const float y = mainRow.getCentreY();
+        for (int i = 0; i < 3; ++i)
+        {
+            const float x = left - 14.0f - (3 - i) * (size + 7.0f);
+            g.setColour(i >= 3 - lit ? APP_COLOR_PRIMARY : juce::Colours::white.withAlpha(0.12f));
+            g.fillEllipse(x, y - 0.5f * size, size, size);
+        }
+    }
+}
+
+float KaraokeView::drawLyricLine(juce::Graphics &g, const KaraokeLyrics::Line &line,
+                                 double referenceSeconds, juce::Rectangle<float> row,
+                                 float fontHeight, bool current) const
+{
+    auto font = AppFont::getBoldFont(fontHeight);
+    float width = juce::GlyphArrangement::getStringWidth(font, line.text);
+    if (width > row.getWidth() && width > 0.0f)
+    {
+        font = AppFont::getBoldFont(std::max(11.0f, fontHeight * row.getWidth() / width));
+        width = juce::GlyphArrangement::getStringWidth(font, line.text);
+    }
+    const float x = row.getCentreX() - 0.5f * width;
+    const float baseline = row.getCentreY() + 0.5f * (font.getAscent() - font.getDescent());
+    g.setFont(font);
+    g.setColour(current ? kLyricsUnsung : kLyricsNext);
+    g.drawSingleLineText(line.text, juce::roundToInt(x), juce::roundToInt(baseline));
+    if (!current)
+        return x;
+
+    // Fill what has been sung: whole syllables, and the one being sung
+    // part of the way, at the pace it is sung.
+    int sung = -1;
+    for (int i = 0; i < static_cast<int>(line.syllables.size()); ++i)
+    {
+        const auto &syllable = line.syllables[static_cast<size_t>(i)];
+        if (syllable.isTimed() && syllable.startSeconds <= referenceSeconds)
+            sung = i;
+    }
+    if (sung < 0)
+        return x;
+    const auto &syllable = line.syllables[static_cast<size_t>(sung)];
+    auto widthTo = [&](int character) {
+        return juce::GlyphArrangement::getStringWidth(font, line.text.substring(0, character));
+    };
+    const double fraction = juce::jlimit(
+        0.0, 1.0,
+        (referenceSeconds - syllable.startSeconds) / std::max(1.0e-3, syllable.endSeconds - syllable.startSeconds));
+    const float from = widthTo(syllable.charStart);
+    const float filled = from + static_cast<float>(fraction) * (widthTo(syllable.charEnd) - from);
+    if (filled <= 0.0f)
+        return x;
+
+    juce::Graphics::ScopedSaveState state(g);
+    g.reduceClipRegion(juce::Rectangle<float>(x - 6.0f, row.getY(), filled + 6.0f, row.getHeight())
+                           .toNearestInt());
+    g.setColour(juce::Colours::white);
+    g.drawSingleLineText(line.text, juce::roundToInt(x), juce::roundToInt(baseline));
+    return x;
 }
 
 void KaraokeView::drawOverlay(juce::Graphics &g) const

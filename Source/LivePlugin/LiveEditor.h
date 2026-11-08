@@ -9,9 +9,9 @@
 class PitchGuideLiveProcessor;
 
 /**
- * PitchGuide Live's window: a header with the reference, transpose and the
- * score, over the karaoke roll. The whole window accepts a dropped
- * reference vocal.
+ * PitchGuide Live's window: a header with the reference, lyrics, transpose
+ * and the score, over the karaoke roll. The whole window accepts a dropped
+ * reference vocal or lyrics file.
  */
 class PitchGuideLiveEditor : public juce::AudioProcessorEditor,
                              public juce::FileDragAndDropTarget,
@@ -35,14 +35,18 @@ private:
 
     void timerCallback() override;
     void chooseReference();
+    void chooseLyricsFile();
+    void showLyrics();
     void showSettings();
     void updateHeader();
     static bool isAudioFile(const juce::String &path);
+    static bool isLyricsFile(const juce::String &path);
 
     PitchGuideLiveProcessor &liveProcessor;
     KaraokeView view;
 
     juce::TextButton loadButton{"Load reference..."};
+    juce::TextButton lyricsButton{"Lyrics"};
     juce::Label referenceLabel;
     juce::Label transposeCaption;
     juce::TextButton octaveDownButton{"-12"};
