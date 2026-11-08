@@ -11,6 +11,11 @@ namespace
 {
 using Notes = std::vector<KaraokeReference::Note>;
 
+// pitchnet_core is built with -ffast-math on GCC/Clang, which assumes there
+// are no infinities (or NaNs) and may drop comparisons with them. "Not
+// reached" and "nothing found" are therefore large finite values.
+constexpr double kUnreached = 1.0e30;
+
 // ---- Text ------------------------------------------------------------------
 
 std::u32string toU32(const juce::String &text)
@@ -30,8 +35,20 @@ juce::String fromU32(const std::u32string &text)
     return out;
 }
 
+// JUCE's isLetter()/toLowerCase() go through iswalpha()/towlower(), which on
+// Linux only know non-ASCII letters under a UTF-8 locale: a plug-in (or test)
+// in the "C" locale would see "á" as punctuation. Latin, Greek and Cyrillic
+// are therefore handled here without the C library.
 bool isLetter(char32_t c)
 {
+    if ((c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z'))
+        return true;
+    if (c < 0xc0)
+        return false;
+    if (c == 0xd7 || c == 0xf7) // multiplication and division signs
+        return false;
+    if (c <= 0x24f || (c >= 0x370 && c <= 0x52f) || (c >= 0x1e00 && c <= 0x1fff))
+        return true;
     return juce::CharacterFunctions::isLetter(static_cast<juce::juce_wchar>(c));
 }
 
@@ -42,6 +59,15 @@ bool isSpace(char32_t c)
 
 char32_t lower(char32_t c)
 {
+    if (c >= U'A' && c <= U'Z')
+        return c + 0x20;
+    if (c >= 0xc0 && c <= 0xde && c != 0xd7) // Latin-1 capitals
+        return c + 0x20;
+    // Latin Extended-A pairs capital/small: even/odd, then odd/even.
+    if ((c >= 0x100 && c <= 0x137) || (c >= 0x14a && c <= 0x177))
+        return (c % 2 == 0) ? c + 1 : c;
+    if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17e))
+        return (c % 2 == 1) ? c + 1 : c;
     return static_cast<char32_t>(
         juce::CharacterFunctions::toLowerCase(static_cast<juce::juce_wchar>(c)));
 }
@@ -79,7 +105,7 @@ bool parseTimestamp(const juce::String &raw, double &seconds)
                   parts[2].getIntValue() / std::pow(10.0, parts[2].length());
     else
         return false;
-    return std::isfinite(seconds) && seconds >= 0.0;
+    return seconds >= 0.0 && seconds < 1.0e6;
 }
 
 bool isMetadataKey(const juce::String &key)
@@ -241,7 +267,7 @@ size_t snapToNote(const Notes &notes, double seconds, double before, double afte
     const size_t lo = firstNoteStartingAtOrAfter(notes, seconds - before, from);
     const size_t hi = firstNoteStartingAtOrAfter(notes, seconds + after, lo);
     size_t best = notes.size();
-    double bestScore = -std::numeric_limits<double>::infinity();
+    double bestScore = -kUnreached;
     for (size_t i = lo; i < hi; ++i)
     {
         const double score = std::min(gapBefore(notes, i), 0.6) -
@@ -304,9 +330,8 @@ void assignSyllables(KaraokeLyrics::Line &line, int first, int last, const Notes
     if (count >= syllables)
     {
         constexpr double kGroupPenalty = 0.12;
-        const double negInf = -std::numeric_limits<double>::infinity();
         const int width = count + 1;
-        std::vector<double> best(static_cast<size_t>((syllables + 1) * width), negInf);
+        std::vector<double> best(static_cast<size_t>((syllables + 1) * width), -kUnreached);
         std::vector<int> previous(best.size(), -1);
         auto at = [width](int i, int j) { return static_cast<size_t>(i * width + j); };
         best[at(0, 0)] = 0.0;
@@ -316,7 +341,7 @@ void assignSyllables(KaraokeLyrics::Line &line, int first, int last, const Notes
             for (int j = i; j <= count - remaining - 1; ++j)
             {
                 const double base = best[at(i, j)];
-                if (base == negInf)
+                if (base <= -0.5 * kUnreached)
                     continue;
                 const double boundary =
                     i == 0 ? 0.0 : std::min(gapBefore(notes, n0 + static_cast<size_t>(j)), 0.25) * 4.0;
@@ -564,7 +589,7 @@ KaraokeLyrics KaraokeLyrics::parse(const juce::String &text)
     for (auto p = text.getCharPointer(); !p.isEmpty();)
     {
         const auto c = p.getAndAdvance();
-        if (juce::CharacterFunctions::isLetter(c))
+        if (isLetter(static_cast<char32_t>(c)))
         {
             ++letters;
             if (c > 127)
@@ -741,9 +766,8 @@ void KaraokeLyrics::applyTiming(const KaraokeReference *reference, double offset
             return b - a >= 2 ? excess[static_cast<size_t>(b - 1)] - excess[static_cast<size_t>(a)] : 0.0;
         };
 
-        const double inf = std::numeric_limits<double>::infinity();
         const int width = noteCount + 1;
-        std::vector<double> cost(static_cast<size_t>((lineCount + 1) * width), inf);
+        std::vector<double> cost(static_cast<size_t>((lineCount + 1) * width), kUnreached);
         std::vector<int> from(cost.size(), -1);
         auto at = [width](int k, int j) { return static_cast<size_t>(k * width + j); };
         for (int j = 0; j <= noteCount; ++j)
@@ -756,7 +780,7 @@ void KaraokeLyrics::applyTiming(const KaraokeReference *reference, double offset
             for (int a = k; a < noteCount; ++a)
             {
                 const double base = cost[at(k, a)];
-                if (base == inf)
+                if (base >= 0.5 * kUnreached)
                     continue;
                 const double startReward = a == 0 ? 0.0 : 2.0 * std::min(gapBefore(*notes, static_cast<size_t>(a)), 1.5);
                 for (int b = a + 1; b <= std::min(noteCount, a + longest); ++b)
@@ -776,7 +800,7 @@ void KaraokeLyrics::applyTiming(const KaraokeReference *reference, double offset
             }
         }
         int end = -1;
-        double bestTotal = inf;
+        double bestTotal = 0.5 * kUnreached;
         for (int j = lineCount; j <= noteCount; ++j)
         {
             const double total = cost[at(lineCount, j)] + kSkipCost * (noteCount - j);
@@ -927,7 +951,7 @@ std::optional<double> KaraokeLyrics::estimateOffset(const KaraokeReference &refe
         {
             const double t = time + offset + 0.05;
             const auto it = std::lower_bound(onsets.begin(), onsets.end(), t);
-            double nearest = std::numeric_limits<double>::infinity();
+            double nearest = 1.0e6;
             if (it != onsets.end())
                 nearest = *it - t;
             if (it != onsets.begin() && std::abs(*(it - 1) - t) < std::abs(nearest))

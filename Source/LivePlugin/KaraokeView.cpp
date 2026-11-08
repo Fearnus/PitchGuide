@@ -708,7 +708,7 @@ void KaraokeView::drawLyrics(juce::Graphics &g) const
     // After a long break, count the singer in: one dot per second to go.
     const int previous = lyrics.previousTimedLine(current);
     const double breakStart = previous >= 0 ? lyrics.lines[static_cast<size_t>(previous)].endSeconds
-                                            : -std::numeric_limits<double>::infinity();
+                                            : -1.0e9;
     const double toGo = line.startSeconds - now;
     if (toGo > 0.0 && toGo <= 3.0 && line.startSeconds - breakStart >= 4.0)
     {

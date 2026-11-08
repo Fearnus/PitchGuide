@@ -77,6 +77,9 @@ void testSyllables()
     CHECK(syllableCount("vlk", false) == 1);
     CHECK(syllables("m\xc3\xa1me", false) == juce::String::fromUTF8("m\xc3\xa1-me"));
     CHECK(syllableCount("m\xc3\xa1me", false) == 2);
+    // Capitals and accents without help from the C library's locale.
+    CHECK(syllables("M\xc3\x81ME", false) == juce::String::fromUTF8("M\xc3\x81-ME"));
+    CHECK(syllables("\xc4\x9aVA", false) == juce::String::fromUTF8("\xc4\x9a-VA"));
 
     // Ranges cover the word with nothing lost.
     const auto word = juce::String("\"beautiful,\"");
