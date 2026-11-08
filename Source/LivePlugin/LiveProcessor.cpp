@@ -1,6 +1,8 @@
 #include "LiveProcessor.h"
 
 #include "LiveEditor.h"
+#include "../Utils/OnnxRuntime.h"
+#include "../Utils/OnnxRuntimeLoader.h"
 
 #include <cmath>
 
@@ -17,6 +19,18 @@ PitchGuideLiveProcessor::PitchGuideLiveProcessor()
                                .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    // Exactly as PitchGuide's plug-in does. Referencing the loader also links
+    // its delay-load hook into this binary; without it Windows resolves
+    // onnxruntime.dll from System32 (an older ORT that cannot serve our API
+    // version) and the first ONNX call dereferences a null API table.
+    OnnxRuntimeLoader::ensureLoadedFromLocalDirectory();
+    juce::String onnxRuntimeError;
+    if (!OnnxRuntime::initialise(&onnxRuntimeError))
+    {
+        DBG("PitchGuide Live: failed to initialise ONNX Runtime: " + onnxRuntimeError);
+        jassertfalse;
+    }
+
     transposeParameter = parameters.getRawParameterValue(kTransposeParamId);
     updateSavedState();
     startTimerHz(30);
