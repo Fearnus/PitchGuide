@@ -31,6 +31,7 @@ endif()
 
 include(FetchContent)
 include(cmake/Asio.cmake)
+include(cmake/OnnxRuntimeNuget.cmake)
 
 # Ensure static libs are built with PIC for shared plugin targets (Linux).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -133,7 +134,11 @@ if(EXISTS "${ONNXRUNTIME_CACHE_HEADER}")
     message(STATUS "ONNX Runtime already downloaded, skipping download")
     set(ONNXRUNTIME_ROOT ${ONNXRUNTIME_CACHE_DIR})
 else()
-    # Detect platform and set download URL
+    # Detect platform and set download URL. The CPU builds come from the NuGet
+    # package (cmake/OnnxRuntimeNuget.cmake): github.com/microsoft/onnxruntime,
+    # which hosted the release archives, is gone. The CUDA archives below were
+    # hosted there too.
+    set(ONNXRUNTIME_NUGET_PLATFORM "")
     if(WIN32)
         if(USE_CUDA)
             set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-gpu_cuda13-${ONNXRUNTIME_VERSION}.zip")
@@ -142,34 +147,52 @@ else()
             set(ONNXRUNTIME_URL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${ONNXRUNTIME_VERSION}")
             message(STATUS "Downloading ONNX Runtime DirectML package from NuGet (Windows)")
         else()
-            set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-${ONNXRUNTIME_VERSION}.zip")
+            set(ONNXRUNTIME_NUGET_PLATFORM "win-x64")
             message(STATUS "Downloading ONNX Runtime CPU package (Windows)")
         endif()
     elseif(APPLE)
         if(USE_GPU)
             message(WARNING "GPU acceleration is not supported on macOS, falling back to CPU")
         endif()
-        set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-osx-${ONNXRUNTIME_MACOS_PACKAGE}-${ONNXRUNTIME_VERSION}.tgz")
+        if(ONNXRUNTIME_MACOS_PACKAGE STREQUAL "x86_64")
+            set(ONNXRUNTIME_NUGET_PLATFORM "osx-x64")
+        else()
+            set(ONNXRUNTIME_NUGET_PLATFORM "osx-${ONNXRUNTIME_MACOS_PACKAGE}")
+        endif()
     else()
         if(USE_CUDA)
             set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-gpu_cuda13-${ONNXRUNTIME_VERSION}.tgz")
         elseif(USE_GPU)
             set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}.tgz")
         else()
-            set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz")
+            set(ONNXRUNTIME_NUGET_PLATFORM "linux-x64")
         endif()
     endif()
 
-    message(STATUS "Downloading ONNX Runtime from: ${ONNXRUNTIME_URL}")
-
-    FetchContent_Declare(
-        onnxruntime
-        URL ${ONNXRUNTIME_URL}
-        SOURCE_DIR ${ONNXRUNTIME_CACHE_DIR}
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(onnxruntime)
-    set(ONNXRUNTIME_ROOT ${onnxruntime_SOURCE_DIR})
+    if(ONNXRUNTIME_NUGET_PLATFORM)
+        set(ONNXRUNTIME_URL "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/${ONNXRUNTIME_VERSION}")
+        message(STATUS "Downloading ONNX Runtime from: ${ONNXRUNTIME_URL}")
+        FetchContent_Declare(
+            onnxruntime_nuget
+            URL ${ONNXRUNTIME_URL}
+            SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/onnxruntime-${ONNXRUNTIME_VERSION}-nuget"
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(onnxruntime_nuget)
+        pitchnet_unpack_onnxruntime_nuget("${onnxruntime_nuget_SOURCE_DIR}" "${ONNXRUNTIME_CACHE_DIR}"
+                                          "${ONNXRUNTIME_NUGET_PLATFORM}" "${ONNXRUNTIME_VERSION}")
+        set(ONNXRUNTIME_ROOT ${ONNXRUNTIME_CACHE_DIR})
+    else()
+        message(STATUS "Downloading ONNX Runtime from: ${ONNXRUNTIME_URL}")
+        FetchContent_Declare(
+            onnxruntime
+            URL ${ONNXRUNTIME_URL}
+            SOURCE_DIR ${ONNXRUNTIME_CACHE_DIR}
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        )
+        FetchContent_MakeAvailable(onnxruntime)
+        set(ONNXRUNTIME_ROOT ${onnxruntime_SOURCE_DIR})
+    endif()
 endif()
 
 # Handle different directory structures for DirectML NuGet package vs regular packages
