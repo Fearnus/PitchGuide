@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Audio/Live/KaraokeLyrics.h"
 #include "../JuceHeader.h"
 
 #include <optional>
@@ -13,6 +14,10 @@ class PitchGuideLiveProcessor;
  *
  * The pitch range follows the song (and the voice when there is no song), so
  * the view never needs scrolling. The mouse wheel zooms time.
+ *
+ * With lyrics, a band under the roll shows the current line, filling in
+ * syllable by syllable as it is sung, with the next line under it; each
+ * note bar carries its syllable.
  */
 class KaraokeView : public juce::Component
 {
@@ -38,6 +43,8 @@ private:
     static constexpr float kMinSpanSemitones = 15.0f;
 
     juce::Rectangle<float> rollArea() const;
+    juce::Rectangle<float> lyricsArea() const;
+    float lyricsBandHeight() const;
     float nowX() const;
     float timeToX(double hostSeconds) const;
     float midiToY(float midi) const;
@@ -55,6 +62,14 @@ private:
     void drawLanes(juce::Graphics &g) const;
     void drawTimeGrid(juce::Graphics &g) const;
     void drawNotes(juce::Graphics &g) const;
+    void drawSyllableLabels(juce::Graphics &g, float barHeight) const;
+    void drawSectionLabels(juce::Graphics &g) const;
+    void drawLyrics(juce::Graphics &g) const;
+    /** Draws a lyric line centred in row, filled up to referenceSeconds when
+        current. Returns the x where the text starts. */
+    float drawLyricLine(juce::Graphics &g, const KaraokeLyrics::Line &line,
+                        double referenceSeconds, juce::Rectangle<float> row,
+                        float fontHeight, bool current) const;
     void drawSungTrail(juce::Graphics &g, float opacity) const;
     void drawFreeTrail(juce::Graphics &g) const;
     void drawNowLine(juce::Graphics &g) const;

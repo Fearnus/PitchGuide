@@ -133,6 +133,14 @@ void PitchGuideLiveProcessor::processBlock(juce::AudioBuffer<float> &buffer, juc
     }
 }
 
+void PitchGuideLiveProcessor::timerCallback()
+{
+    drainLiveFrames();
+    // Twice a second is plenty to notice a MIDI file saved again.
+    if (++timerTicks % 15 == 0)
+        reloadChangedMidiReference();
+}
+
 void PitchGuideLiveProcessor::drainLiveFrames()
 {
     const int ready = fifo.getNumReady();
@@ -194,16 +202,31 @@ void PitchGuideLiveProcessor::setTranspose(int semitones)
 
 void PitchGuideLiveProcessor::setOptions(const Options &newOptions)
 {
+    const bool lyricsMoved = newOptions.lyricsOffsetSeconds != options.lyricsOffsetSeconds;
     options = newOptions;
+    options.lyricsOffsetSeconds = juce::jlimit(-120.0, 120.0, options.lyricsOffsetSeconds);
     options.toleranceCents = juce::jlimit(5.0f, 200.0f, options.toleranceCents);
     options.latencyMs = juce::jlimit(0.0f, 1000.0f, options.latencyMs);
     options.gateDb = juce::jlimit(-90.0f, 0.0f, options.gateDb);
     gateDb.store(options.gateDb);
+    if (lyricsMoved)
+        retimeLyrics();
     updateSavedState();
 }
 
-void PitchGuideLiveProcessor::loadReference(const juce::File &file)
+void PitchGuideLiveProcessor::loadReference(const juce::File &file, bool syncLyrics)
 {
+    if (KaraokeReference::isMidiFile(file))
+    {
+        // Nothing to analyse: read it now. A vocal still being analysed was
+        // the older choice and is dropped.
+        analysisJob.reset();
+        analysingFile = juce::File();
+        loadMidiReference(file, syncLyrics, true);
+        return;
+    }
+
+    syncLyricsWhenAnalysed = syncLyrics;
     lastError.clear();
     analysisProgress = 0.0;
     analysisMessage = "Analysing " + file.getFileName();
@@ -220,7 +243,7 @@ void PitchGuideLiveProcessor::loadReference(const juce::File &file)
             analysisJob.reset();
             analysingFile = juce::File();
             if (result)
-                applyReference(std::move(*result));
+                applyReference(std::move(*result), syncLyricsWhenAnalysed);
             else
                 lastError = error;
             updateSavedState();
@@ -234,22 +257,108 @@ void PitchGuideLiveProcessor::clearReference()
     analysingFile = juce::File();
     reference = KaraokeReference();
     lastError.clear();
+    retimeLyrics();
     updateSavedState();
 }
 
-void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference)
+void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference, bool syncLyrics,
+                                             bool clearTrail)
 {
     reference = std::move(newReference);
     lastError.clear();
     // The old attempt was sung against another song.
-    trail.clear();
+    if (clearTrail)
+        trail.clear();
+    if (!syncLyrics || !autoSyncLyrics())
+        retimeLyrics();
     updateSavedState();
+}
+
+bool PitchGuideLiveProcessor::loadMidiReference(const juce::File &file, bool syncLyrics,
+                                                bool clearTrail)
+{
+    const auto modified = file.getLastModificationTime();
+    juce::String error;
+    auto loaded = KaraokeReference::fromMidiFile(file, &error);
+    if (!loaded)
+    {
+        // The current reference, if any, stays. When it is this file, saved
+        // half-written or broken, it is not read again until saved again.
+        if (reference.sourcePath == file.getFullPathName())
+            referenceFileTime = modified;
+        lastError = error;
+        updateSavedState();
+        return false;
+    }
+    referenceFileTime = modified;
+    applyReference(std::move(*loaded), syncLyrics, clearTrail);
+    return true;
+}
+
+void PitchGuideLiveProcessor::reloadChangedMidiReference()
+{
+    if (isAnalysing() || !reference.isLoaded() ||
+        !juce::File::isAbsolutePath(reference.sourcePath))
+        return;
+    const juce::File file(reference.sourcePath);
+    if (!KaraokeReference::isMidiFile(file) || !file.existsAsFile())
+        return;
+    const auto modified = file.getLastModificationTime();
+    if (modified == referenceFileTime)
+        return;
+    // Let a DAW finish writing it first.
+    if (juce::Time::getCurrentTime() - modified < juce::RelativeTime::milliseconds(400))
+        return;
+    // The same song with its notes edited: the lyrics keep their offset and
+    // what was sung stays, scored against the new notes.
+    loadMidiReference(file, false, false);
+}
+
+void PitchGuideLiveProcessor::setLyricsText(const juce::String &text)
+{
+    lyricsText = text.trim();
+    lyrics = KaraokeLyrics::parse(lyricsText);
+    options.lyricsOffsetSeconds = 0.0;
+    // New lyrics get lined up with the reference as soon as there is one.
+    syncLyricsWhenAnalysed = true;
+    if (!autoSyncLyrics())
+        retimeLyrics();
+    updateSavedState();
+}
+
+bool PitchGuideLiveProcessor::loadLyricsFile(const juce::File &file)
+{
+    if (!file.existsAsFile() || file.getSize() > 1024 * 1024)
+        return false;
+    setLyricsText(file.loadFileAsString());
+    return true;
+}
+
+bool PitchGuideLiveProcessor::autoSyncLyrics()
+{
+    if (lyrics.isEmpty() || lyrics.sourceTiming == KaraokeLyrics::SourceTiming::None ||
+        !reference.isLoaded())
+        return false;
+    // Only move lyrics that clearly fit better elsewhere: most LRC files are
+    // already right for the album version.
+    const auto offset = lyrics.estimateOffset(reference, true);
+    options.lyricsOffsetSeconds = offset.value_or(0.0);
+    retimeLyrics();
+    updateSavedState();
+    return true;
+}
+
+void PitchGuideLiveProcessor::retimeLyrics()
+{
+    lyrics.applyTiming(reference.isLoaded() ? &reference : nullptr, options.lyricsOffsetSeconds);
+    ++lyricsRevision;
 }
 
 void PitchGuideLiveProcessor::updateSavedState()
 {
     const juce::ScopedLock lock(stateLock);
     savedOptions = options;
+    savedLyricsText = lyricsText;
     if (reference.isLoaded())
     {
         savedReferencePath = reference.sourcePath;
@@ -281,6 +390,7 @@ void PitchGuideLiveProcessor::getStateInformation(juce::MemoryBlock &destData)
         xml.setAttribute("pixelsPerSecond", savedOptions.pixelsPerSecond);
         xml.setAttribute("editorWidth", savedOptions.editorWidth);
         xml.setAttribute("editorHeight", savedOptions.editorHeight);
+        xml.setAttribute("lyricsOffset", savedOptions.lyricsOffsetSeconds);
         if (savedReferencePath.isNotEmpty())
         {
             auto *element = xml.createNewChildElement("Reference");
@@ -288,6 +398,8 @@ void PitchGuideLiveProcessor::getStateInformation(juce::MemoryBlock &destData)
             if (savedReferenceData.isNotEmpty())
                 element->addTextElement(savedReferenceData);
         }
+        if (savedLyricsText.isNotEmpty())
+            xml.createNewChildElement("Lyrics")->addTextElement(savedLyricsText);
     }
     if (auto parameterXml = parameters.copyState().createXml())
         xml.addChildElement(parameterXml.release());
@@ -316,20 +428,37 @@ void PitchGuideLiveProcessor::setStateInformation(const void *data, int sizeInBy
             xml->getDoubleAttribute("pixelsPerSecond", restored.pixelsPerSecond));
         restored.editorWidth = xml->getIntAttribute("editorWidth", restored.editorWidth);
         restored.editorHeight = xml->getIntAttribute("editorHeight", restored.editorHeight);
+        restored.lyricsOffsetSeconds = xml->getDoubleAttribute("lyricsOffset", 0.0);
+
+        // Saved lyrics come back with their saved offset, not synced again.
+        auto *lyricsElement = xml->getChildByName("Lyrics");
+        lyricsText = lyricsElement != nullptr ? lyricsElement->getAllSubText().trim()
+                                              : juce::String();
+        lyrics = KaraokeLyrics::parse(lyricsText);
+        syncLyricsWhenAnalysed = false;
         setOptions(restored);
+        retimeLyrics();
 
         if (auto *element = xml->getChildByName("Reference"))
         {
             const auto path = element->getStringAttribute("path");
+            const auto file = juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File();
             juce::MemoryBlock block;
             const auto text = element->getAllSubText().trim();
             std::optional<KaraokeReference> restoredReference;
             if (text.isNotEmpty() && block.fromBase64Encoding(text))
                 restoredReference = KaraokeReference::fromMemoryBlock(block);
+
+            // A MIDI file is cheap to read and may have been edited since the
+            // project was saved: read it again, and keep the saved notes for
+            // when it is gone.
+            const bool midi = KaraokeReference::isMidiFile(file);
+            if (midi && file.existsAsFile() && loadMidiReference(file, false, true))
+                return;
             if (restoredReference && restoredReference->isLoaded())
-                applyReference(std::move(*restoredReference));
-            else if (juce::File::isAbsolutePath(path) && juce::File(path).existsAsFile())
-                loadReference(juce::File(path));
+                applyReference(std::move(*restoredReference), false);
+            else if (!midi && file.existsAsFile())
+                loadReference(file, false);
         }
     };
 

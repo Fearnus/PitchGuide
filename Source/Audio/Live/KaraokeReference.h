@@ -12,9 +12,10 @@ class Project;
  * its pitch curve, in reference time (0 = the start of the reference file).
  *
  * Built from a Project that went through the editor's take analysis, so the
- * notes are exactly the ones the editor would show for the same file. Only
- * the drawing data is kept - no audio - so it is small enough to live in the
- * plug-in state and a reopened session does not analyse the song again.
+ * notes are exactly the ones the editor would show for the same file, or read
+ * from a MIDI file of the melody (notes only, no curve). Only the drawing
+ * data is kept - no audio - so it is small enough to live in the plug-in
+ * state and a reopened session does not analyse the song again.
  */
 struct KaraokeReference
 {
@@ -57,6 +58,22 @@ struct KaraokeReference
     /** Notes and curve of an analysed take. */
     static KaraokeReference fromProject(const Project &project,
                                         const juce::String &sourcePath);
+
+    /** .mid / .midi: a melody written by hand instead of a sung vocal. */
+    static bool isMidiFile(const juce::File &file);
+    /**
+     * Notes of a standard MIDI file, timed through its tempo map, so MIDI
+     * time 0 is reference time 0. There is no pitch curve: the notes are all
+     * there is to sing. One part is used - the one named like a vocal or
+     * melody, else the one with the most notes, never GM drums (channel 10) -
+     * and made monophonic: the top note of a chord, and a note ends where the
+     * next one starts. Empty with a reason in error when there are no notes.
+     */
+    static std::optional<KaraokeReference> fromMidi(juce::InputStream &stream,
+                                                    const juce::String &sourcePath,
+                                                    juce::String *error = nullptr);
+    static std::optional<KaraokeReference> fromMidiFile(const juce::File &file,
+                                                        juce::String *error = nullptr);
 
     /** Compact binary form for the plug-in state. */
     juce::MemoryBlock toMemoryBlock() const;
