@@ -133,6 +133,14 @@ void PitchGuideLiveProcessor::processBlock(juce::AudioBuffer<float> &buffer, juc
     }
 }
 
+void PitchGuideLiveProcessor::timerCallback()
+{
+    drainLiveFrames();
+    // Twice a second is plenty to notice a MIDI file saved again.
+    if (++timerTicks % 15 == 0)
+        reloadChangedMidiReference();
+}
+
 void PitchGuideLiveProcessor::drainLiveFrames()
 {
     const int ready = fifo.getNumReady();
@@ -208,6 +216,16 @@ void PitchGuideLiveProcessor::setOptions(const Options &newOptions)
 
 void PitchGuideLiveProcessor::loadReference(const juce::File &file, bool syncLyrics)
 {
+    if (KaraokeReference::isMidiFile(file))
+    {
+        // Nothing to analyse: read it now. A vocal still being analysed was
+        // the older choice and is dropped.
+        analysisJob.reset();
+        analysingFile = juce::File();
+        loadMidiReference(file, syncLyrics, true);
+        return;
+    }
+
     syncLyricsWhenAnalysed = syncLyrics;
     lastError.clear();
     analysisProgress = 0.0;
@@ -243,15 +261,57 @@ void PitchGuideLiveProcessor::clearReference()
     updateSavedState();
 }
 
-void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference, bool syncLyrics)
+void PitchGuideLiveProcessor::applyReference(KaraokeReference newReference, bool syncLyrics,
+                                             bool clearTrail)
 {
     reference = std::move(newReference);
     lastError.clear();
     // The old attempt was sung against another song.
-    trail.clear();
+    if (clearTrail)
+        trail.clear();
     if (!syncLyrics || !autoSyncLyrics())
         retimeLyrics();
     updateSavedState();
+}
+
+bool PitchGuideLiveProcessor::loadMidiReference(const juce::File &file, bool syncLyrics,
+                                                bool clearTrail)
+{
+    const auto modified = file.getLastModificationTime();
+    juce::String error;
+    auto loaded = KaraokeReference::fromMidiFile(file, &error);
+    if (!loaded)
+    {
+        // The current reference, if any, stays. When it is this file, saved
+        // half-written or broken, it is not read again until saved again.
+        if (reference.sourcePath == file.getFullPathName())
+            referenceFileTime = modified;
+        lastError = error;
+        updateSavedState();
+        return false;
+    }
+    referenceFileTime = modified;
+    applyReference(std::move(*loaded), syncLyrics, clearTrail);
+    return true;
+}
+
+void PitchGuideLiveProcessor::reloadChangedMidiReference()
+{
+    if (isAnalysing() || !reference.isLoaded() ||
+        !juce::File::isAbsolutePath(reference.sourcePath))
+        return;
+    const juce::File file(reference.sourcePath);
+    if (!KaraokeReference::isMidiFile(file) || !file.existsAsFile())
+        return;
+    const auto modified = file.getLastModificationTime();
+    if (modified == referenceFileTime)
+        return;
+    // Let a DAW finish writing it first.
+    if (juce::Time::getCurrentTime() - modified < juce::RelativeTime::milliseconds(400))
+        return;
+    // The same song with its notes edited: the lyrics keep their offset and
+    // what was sung stays, scored against the new notes.
+    loadMidiReference(file, false, false);
 }
 
 void PitchGuideLiveProcessor::setLyricsText(const juce::String &text)
@@ -382,15 +442,23 @@ void PitchGuideLiveProcessor::setStateInformation(const void *data, int sizeInBy
         if (auto *element = xml->getChildByName("Reference"))
         {
             const auto path = element->getStringAttribute("path");
+            const auto file = juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File();
             juce::MemoryBlock block;
             const auto text = element->getAllSubText().trim();
             std::optional<KaraokeReference> restoredReference;
             if (text.isNotEmpty() && block.fromBase64Encoding(text))
                 restoredReference = KaraokeReference::fromMemoryBlock(block);
+
+            // A MIDI file is cheap to read and may have been edited since the
+            // project was saved: read it again, and keep the saved notes for
+            // when it is gone.
+            const bool midi = KaraokeReference::isMidiFile(file);
+            if (midi && file.existsAsFile() && loadMidiReference(file, false, true))
+                return;
             if (restoredReference && restoredReference->isLoaded())
                 applyReference(std::move(*restoredReference), false);
-            else if (juce::File::isAbsolutePath(path) && juce::File(path).existsAsFile())
-                loadReference(juce::File(path), false);
+            else if (!midi && file.existsAsFile())
+                loadReference(file, false);
         }
     };
 

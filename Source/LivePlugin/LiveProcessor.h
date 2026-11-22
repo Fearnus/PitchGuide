@@ -17,7 +17,8 @@
  *
  * Sits on the singer's (monitored) microphone track and passes the audio
  * through untouched. A reference vocal of the song is analysed once into
- * notes; while the host plays, the microphone's pitch is detected live and
+ * notes, or the notes come from a MIDI file of the melody; while the host
+ * plays, the microphone's pitch is detected live and
  * recorded against the host timeline, so the editor can draw what was sung
  * over what should have been sung.
  *
@@ -83,8 +84,10 @@ public:
     void setOptions(const Options &newOptions);
 
     const KaraokeReference &getReference() const { return reference; }
-    /** Starts analysing a reference vocal; the current one stays until it is
-        done. With syncLyrics, timed lyrics are lined up with it once it is. */
+    /** Loads a reference: a vocal is analysed in the background (the current
+        one stays until it is done), a MIDI file of the melody is read at once
+        and read again whenever it changes on disk. With syncLyrics, timed
+        lyrics are lined up with it once it is loaded. */
     void loadReference(const juce::File &file, bool syncLyrics = true);
     void clearReference();
 
@@ -138,8 +141,10 @@ public:
     juce::AudioProcessorValueTreeState &getParameterState() { return parameters; }
 
 private:
-    void timerCallback() override { drainLiveFrames(); }
-    void applyReference(KaraokeReference newReference, bool syncLyrics);
+    void timerCallback() override;
+    void applyReference(KaraokeReference newReference, bool syncLyrics, bool clearTrail = true);
+    bool loadMidiReference(const juce::File &file, bool syncLyrics, bool clearTrail);
+    void reloadChangedMidiReference();
     void retimeLyrics();
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -174,6 +179,9 @@ private:
     Options options;
     juce::File analysingFile;
     KaraokeReference reference;
+    /** Modification time of the MIDI file the reference was last read from. */
+    juce::Time referenceFileTime;
+    int timerTicks = 0;
     std::unique_ptr<ReferenceNotesJob> analysisJob;
     bool syncLyricsWhenAnalysed = false;
     juce::String lyricsText;

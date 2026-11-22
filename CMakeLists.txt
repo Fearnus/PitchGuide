@@ -1046,8 +1046,9 @@ endif()
 
 # PitchGuide Live: karaoke pitch feedback as its own small plug-in. It goes on
 # the singer's microphone track, shows the notes of a reference vocal (found
-# by the editor's own take analysis) and the singer's live pitch over them,
-# and has none of the editor. Shares pitchnet_core/pitchnet_ui and the models.
+# by the editor's own take analysis) or of a MIDI file of the melody, and the
+# singer's live pitch over them, and has none of the editor. Shares
+# pitchnet_core/pitchnet_ui and the models.
 option(PITCHNET_BUILD_LIVE "Build the PitchGuide Live karaoke plug-in" ON)
 if(PITCHNET_BUILD_LIVE)
     if(PITCHNET_DEV_BUILD)

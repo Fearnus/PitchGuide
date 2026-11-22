@@ -11,7 +11,7 @@ class PitchGuideLiveProcessor;
 /**
  * PitchGuide Live's window: a header with the reference, lyrics, transpose
  * and the score, over the karaoke roll. The whole window accepts a dropped
- * reference vocal or lyrics file.
+ * reference (a vocal or a MIDI file) or lyrics file.
  */
 class PitchGuideLiveEditor : public juce::AudioProcessorEditor,
                              public juce::FileDragAndDropTarget,
@@ -39,7 +39,8 @@ private:
     void showLyrics();
     void showSettings();
     void updateHeader();
-    static bool isAudioFile(const juce::String &path);
+    /** A vocal to analyse or a MIDI file of the melody. */
+    static bool isReferenceFile(const juce::String &path);
     static bool isLyricsFile(const juce::String &path);
 
     PitchGuideLiveProcessor &liveProcessor;

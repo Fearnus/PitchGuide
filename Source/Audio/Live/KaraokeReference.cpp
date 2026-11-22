@@ -4,6 +4,7 @@
 #include "../../Utils/Constants.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -13,6 +14,41 @@ constexpr int kFormatMagic = 0x504c5246; // "PLRF"
 constexpr int kFormatVersion = 1;
 constexpr double kAnalysisFrameSeconds =
     static_cast<double>(HOP_SIZE) / static_cast<double>(SAMPLE_RATE);
+
+/** Sorts notes by start and makes them one line: a later note wins where
+    two overlap, so noteAt() has one answer. */
+void makeMonophonic(std::vector<KaraokeReference::Note> &notes)
+{
+    using Note = KaraokeReference::Note;
+    std::sort(notes.begin(), notes.end(),
+              [](const Note &a, const Note &b) { return a.startSeconds < b.startSeconds; });
+    for (size_t i = 1; i < notes.size(); ++i)
+        notes[i - 1].endSeconds = std::min(notes[i - 1].endSeconds, notes[i].startSeconds);
+    notes.erase(std::remove_if(notes.begin(), notes.end(),
+                               [](const Note &n) { return n.endSeconds <= n.startSeconds; }),
+                notes.end());
+}
+
+/** Notes of one track and channel of a MIDI file. */
+struct MidiPart
+{
+    juce::String trackName;
+    int channel = 0;
+    std::vector<KaraokeReference::Note> notes;
+};
+
+bool soundsLikeTheTune(const juce::String &trackName)
+{
+    for (const char *word : {"vocal", "voice", "vox", "sing", "melody", "lead", "tune"})
+        if (trackName.containsIgnoreCase(word))
+            return true;
+    return false;
+}
+
+/** Notes starting this close together are one chord. */
+constexpr double kChordSeconds = 0.01;
+/** The longest MIDI file read: a melody is a few kilobytes. */
+constexpr juce::int64 kMaxMidiBytes = 16 * 1024 * 1024;
 } // namespace
 
 double KaraokeReference::getDurationSeconds() const
@@ -93,17 +129,135 @@ KaraokeReference KaraokeReference::fromProject(const Project &project,
         }
     }
 
-    std::sort(reference.notes.begin(), reference.notes.end(),
-              [](const Note &a, const Note &b) { return a.startSeconds < b.startSeconds; });
-    // A later note wins where two touch, so noteAt() has one answer.
-    for (size_t i = 1; i < reference.notes.size(); ++i)
-        reference.notes[i - 1].endSeconds =
-            std::min(reference.notes[i - 1].endSeconds, reference.notes[i].startSeconds);
-    reference.notes.erase(
-        std::remove_if(reference.notes.begin(), reference.notes.end(),
-                       [](const Note &n) { return n.endSeconds <= n.startSeconds; }),
-        reference.notes.end());
+    makeMonophonic(reference.notes);
     return reference;
+}
+
+bool KaraokeReference::isMidiFile(const juce::File &file)
+{
+    return file.hasFileExtension("mid;midi");
+}
+
+std::optional<KaraokeReference> KaraokeReference::fromMidi(juce::InputStream &stream,
+                                                           const juce::String &sourcePath,
+                                                           juce::String *error)
+{
+    const auto fileName = juce::File::isAbsolutePath(sourcePath)
+                              ? juce::File(sourcePath).getFileName()
+                              : sourcePath;
+    auto fail = [error](const juce::String &message) -> std::optional<KaraokeReference> {
+        if (error != nullptr)
+            *error = message;
+        return std::nullopt;
+    };
+
+    juce::MidiFile midi;
+    // Matching note-offs are added for notes the file never ends, at the end
+    // of their track.
+    if (!midi.readFrom(stream, true) || midi.getNumTracks() == 0)
+        return fail("Could not read " + fileName + " as a MIDI file");
+    // Ticks to seconds through every tempo change in the file. A file without
+    // any is at 120 bpm, as the MIDI standard says.
+    midi.convertTimestampTicksToSeconds();
+
+    std::vector<MidiPart> parts;
+    for (int trackIndex = 0; trackIndex < midi.getNumTracks(); ++trackIndex)
+    {
+        const auto *track = midi.getTrack(trackIndex);
+        juce::String trackName;
+        for (int i = 0; i < track->getNumEvents() && trackName.isEmpty(); ++i)
+        {
+            const auto &message = track->getEventPointer(i)->message;
+            if (message.isTrackNameEvent())
+                trackName = message.getTextFromTextMetaEvent();
+        }
+
+        // A type 0 file keeps every instrument in one track, by channel.
+        std::array<MidiPart, 16> byChannel;
+        for (int i = 0; i < track->getNumEvents(); ++i)
+        {
+            const auto *event = track->getEventPointer(i);
+            const auto &message = event->message;
+            if (!message.isNoteOn() || event->noteOffObject == nullptr)
+                continue;
+            const int channel = message.getChannel();
+            if (channel < 1 || channel > 16 || channel == 10) // GM drums
+                continue;
+            Note note;
+            note.startSeconds = message.getTimeStamp();
+            note.endSeconds = event->noteOffObject->message.getTimeStamp();
+            note.midi = static_cast<float>(message.getNoteNumber());
+            if (note.endSeconds > note.startSeconds)
+                byChannel[static_cast<size_t>(channel - 1)].notes.push_back(note);
+        }
+        for (int channel = 1; channel <= 16; ++channel)
+        {
+            auto &part = byChannel[static_cast<size_t>(channel - 1)];
+            if (part.notes.empty())
+                continue;
+            part.trackName = trackName;
+            part.channel = channel;
+            parts.push_back(std::move(part));
+        }
+    }
+    if (parts.empty())
+        return fail("No notes were found in " + fileName);
+
+    // The part named like the tune, else the busiest one.
+    const auto best = std::max_element(parts.begin(), parts.end(),
+                                       [](const MidiPart &a, const MidiPart &b) {
+                                           const bool aTune = soundsLikeTheTune(a.trackName);
+                                           const bool bTune = soundsLikeTheTune(b.trackName);
+                                           if (aTune != bTune)
+                                               return bTune;
+                                           return a.notes.size() < b.notes.size();
+                                       });
+    auto notes = std::move(best->notes);
+
+    // A chord is sung as its top note.
+    std::sort(notes.begin(), notes.end(), [](const Note &a, const Note &b) {
+        return a.startSeconds < b.startSeconds;
+    });
+    std::vector<Note> melody;
+    for (size_t i = 0; i < notes.size();)
+    {
+        size_t top = i, next = i + 1;
+        for (; next < notes.size() &&
+               notes[next].startSeconds - notes[i].startSeconds < kChordSeconds;
+             ++next)
+            if (notes[next].midi > notes[top].midi)
+                top = next;
+        melody.push_back(notes[top]);
+        i = next;
+    }
+
+    KaraokeReference reference;
+    reference.sourcePath = sourcePath;
+    reference.frameSeconds = kAnalysisFrameSeconds;
+    reference.notes = std::move(melody);
+    makeMonophonic(reference.notes);
+    if (!reference.isLoaded())
+        return fail("No notes were found in " + fileName);
+    return reference;
+}
+
+std::optional<KaraokeReference> KaraokeReference::fromMidiFile(const juce::File &file,
+                                                               juce::String *error)
+{
+    if (!file.existsAsFile() || file.getSize() > kMaxMidiBytes)
+    {
+        if (error != nullptr)
+            *error = "Could not read " + file.getFileName();
+        return std::nullopt;
+    }
+    juce::FileInputStream stream(file);
+    if (!stream.openedOk())
+    {
+        if (error != nullptr)
+            *error = "Could not open " + file.getFileName();
+        return std::nullopt;
+    }
+    return fromMidi(stream, file.getFullPathName(), error);
 }
 
 juce::MemoryBlock KaraokeReference::toMemoryBlock() const

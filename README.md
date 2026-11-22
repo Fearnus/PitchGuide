@@ -258,6 +258,16 @@ none of the editor: it shows what to sing and how close you are, live.
    uses for a take (FCPE or RMVPE pitch and GAME notes, on the device chosen
    in PitchGuide's settings), once; they are saved with the DAW project, so
    reopening it does not analyse the song again.
+
+   Or write the melody yourself: export it as a MIDI file (`.mid`) and load
+   that instead. Its notes are used as written, timed through the file's
+   tempo map, with MIDI time 0 at the reference start. Live reads one part:
+   the track named like a vocal or melody ("Vocal", "Lead", "Melody"...),
+   otherwise the one with the most notes, never drums on channel 10; a chord
+   counts as its top note. The file is read again whenever you save it, so
+   you can fix notes in the DAW's piano roll, export over the same file, and
+   carry on singing. With no recorded voice behind it there is no amber pitch
+   curve, and you are scored against the notes alone.
 3. Press play in the DAW. The notes scroll towards the line on the left, the
    reference's own pitch is drawn over them in amber, and your voice is drawn
    behind the line: green when it is in tune with the reference, yellow when

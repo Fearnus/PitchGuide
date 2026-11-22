@@ -1,5 +1,5 @@
 // PitchGuide Live: the real-time detector, the sung trail and its score, and
-// the reference notes the karaoke view draws.
+// the reference notes the karaoke view draws (analysed or from a MIDI file).
 
 #include "../Source/Audio/Live/KaraokeReference.h"
 #include "../Source/Audio/Live/LivePitchDetector.h"
@@ -9,9 +9,11 @@
 #include "TestAssert.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <initializer_list>
 #include <random>
 #include <vector>
 
@@ -318,6 +320,117 @@ void testReferenceFromProjectAndState()
     juce::MemoryBlock garbage("not a reference", 15);
     CHECK(!KaraokeReference::fromMemoryBlock(garbage).has_value());
 }
+
+/** A track as a DAW writes it: optional name, notes as (tick on, tick off, note). */
+juce::MidiMessageSequence midiTrack(const juce::String &name, int channel,
+                                    std::initializer_list<std::array<int, 3>> notes)
+{
+    juce::MidiMessageSequence track;
+    if (name.isNotEmpty())
+        track.addEvent(juce::MidiMessage::textMetaEvent(3, name), 0.0);
+    for (const auto &note : notes)
+    {
+        track.addEvent(juce::MidiMessage::noteOn(channel, note[2], 0.8f), note[0]);
+        track.addEvent(juce::MidiMessage::noteOff(channel, note[2]), note[1]);
+    }
+    track.updateMatchedPairs();
+    return track;
+}
+
+std::optional<KaraokeReference> readMidi(const juce::MidiFile &file, juce::String *error = nullptr)
+{
+    juce::MemoryOutputStream out;
+    CHECK(file.writeTo(out));
+    juce::MemoryInputStream in(out.getData(), out.getDataSize(), false);
+    return KaraokeReference::fromMidi(in, "C:/songs/melody.mid", error);
+}
+
+void testReferenceFromMidi()
+{
+    CHECK(KaraokeReference::isMidiFile(juce::File("C:/songs/melody.mid")));
+    CHECK(KaraokeReference::isMidiFile(juce::File("C:/songs/MELODY.MIDI")));
+    CHECK(!KaraokeReference::isMidiFile(juce::File("C:/songs/vocal.wav")));
+
+    // 480 ticks a beat; 120 bpm, then 60 bpm from beat 4 (2 s).
+    juce::MidiFile midi;
+    midi.setTicksPerQuarterNote(480);
+    juce::MidiMessageSequence tempo;
+    tempo.addEvent(juce::MidiMessage::tempoMetaEvent(500000), 0.0);
+    tempo.addEvent(juce::MidiMessage::tempoMetaEvent(1000000), 1920.0);
+    midi.addTrack(tempo);
+    // GM drums, the busiest part: never the tune.
+    midi.addTrack(midiTrack("Beat", 10, {{0, 100, 36}, {240, 340, 38}, {480, 580, 36},
+                                         {720, 820, 38}, {960, 1060, 36}, {1200, 1300, 38}}));
+    // More notes than the vocal, but not named like the tune.
+    midi.addTrack(midiTrack("Piano", 1, {{0, 400, 48}, {480, 880, 52}, {960, 1360, 55},
+                                         {1440, 1840, 48}, {1920, 2400, 50}}));
+    midi.addTrack(midiTrack("Lead Vocal", 2,
+                            {{0, 480, 60},      // 0.0 - 0.5 s
+                             {960, 1440, 64},   // a chord at 1.0 s ...
+                             {962, 1440, 67},   // ... sung as its top note
+                             {1680, 2160, 62},  // 1.75 s, cut where the next starts
+                             {1920, 2400, 65}})); // 2.0 - 3.0 s at 60 bpm
+
+    juce::String error;
+    const auto reference = readMidi(midi, &error);
+    CHECK(reference.has_value());
+    CHECK(error.isEmpty());
+    CHECK(reference->sourcePath == "C:/songs/melody.mid");
+    CHECK(reference->curveMidi.empty());
+    CHECK(reference->notes.size() == 4);
+    auto same = [](double a, double b) { return std::abs(a - b) < 1.0e-6; };
+    CHECK(same(reference->notes[0].startSeconds, 0.0) && same(reference->notes[0].endSeconds, 0.5));
+    CHECK(reference->notes[0].midi == 60.0f);
+    CHECK(same(reference->notes[1].startSeconds, 962.0 / 960.0) &&
+          same(reference->notes[1].endSeconds, 1.5));
+    CHECK(reference->notes[1].midi == 67.0f);
+    CHECK(same(reference->notes[2].startSeconds, 1.75) && same(reference->notes[2].endSeconds, 2.0));
+    CHECK(same(reference->notes[3].startSeconds, 2.0) && same(reference->notes[3].endSeconds, 3.0));
+    CHECK(reference->notes[3].midi == 65.0f);
+    CHECK(same(reference->getDurationSeconds(), 3.0));
+
+    // Scored against the notes alone.
+    CHECK(std::abs(*reference->pitchErrorAt(2.5, 65.3f, 0.0f) - 0.3f) < 1.0e-4f);
+    CHECK(std::abs(*reference->pitchErrorAt(2.5, 53.0f, -12.0f)) < 1.0e-4f);
+    CHECK(!reference->pitchErrorAt(0.75, 60.0f, 0.0f).has_value());
+
+    // Saved with the plug-in like an analysed reference.
+    const auto restored = KaraokeReference::fromMemoryBlock(reference->toMemoryBlock());
+    CHECK(restored.has_value() && restored->notes.size() == 4 && restored->curveMidi.empty());
+
+    // Without a tune-like name the busiest part wins; no tempo means 120 bpm.
+    juce::MidiFile plain;
+    plain.setTicksPerQuarterNote(96);
+    plain.addTrack(midiTrack("", 1, {{0, 96, 60}}));
+    plain.addTrack(midiTrack("", 1, {{0, 48, 70}, {96, 144, 72}, {192, 240, 74}}));
+    const auto busiest = readMidi(plain);
+    CHECK(busiest.has_value() && busiest->notes.size() == 3);
+    CHECK(busiest->notes[2].midi == 74.0f && same(busiest->notes[2].startSeconds, 1.0));
+
+    // A type 0 file: one track, the parts by channel.
+    juce::MidiFile single;
+    single.setTicksPerQuarterNote(96);
+    juce::MidiMessageSequence mixed = midiTrack("", 3, {{0, 96, 50}, {96, 192, 52}});
+    mixed.addSequence(midiTrack("", 4, {{0, 48, 72}}), 0.0);
+    mixed.updateMatchedPairs();
+    single.addTrack(mixed);
+    const auto byChannel = readMidi(single);
+    CHECK(byChannel.has_value() && byChannel->notes.size() == 2 &&
+          byChannel->notes[0].midi == 50.0f);
+
+    // Nothing to sing.
+    juce::MidiFile drums;
+    drums.setTicksPerQuarterNote(96);
+    drums.addTrack(midiTrack("Drums", 10, {{0, 48, 36}}));
+    error.clear();
+    CHECK(!readMidi(drums, &error).has_value());
+    CHECK(error.contains("No notes"));
+
+    juce::MemoryInputStream garbage("not a MIDI file at all", 22, false);
+    error.clear();
+    CHECK(!KaraokeReference::fromMidi(garbage, "x.mid", &error).has_value());
+    CHECK(error.contains("Could not read"));
+}
 } // namespace
 
 int main()
@@ -328,6 +441,7 @@ int main()
     testTimestampsAreWhenItWasSung();
     testTrailRecordsOverwritesAndScores();
     testReferenceFromProjectAndState();
+    testReferenceFromMidi();
     std::printf("LivePitchTests passed\n");
     return 0;
 }

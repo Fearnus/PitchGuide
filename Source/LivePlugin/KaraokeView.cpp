@@ -816,11 +816,12 @@ void KaraokeView::drawOverlay(juce::Graphics &g) const
     {
         const auto error = processor.getLastError();
         drawCentredBlock(
-            "Drop the song's vocal here",
+            "Drop the song's vocal or a MIDI file here",
             error.isNotEmpty()
                 ? error
-                : "Use an isolated vocal of the song you are singing. PitchGuide finds its "
-                  "notes and shows them as the song plays.",
+                : "Use an isolated vocal of the song you are singing, and PitchGuide finds "
+                  "its notes - or a MIDI file of the melody you wrote. They scroll by as "
+                  "the song plays.",
             error.isNotEmpty() ? kOff : juce::Colours::white.withAlpha(0.65f));
     }
 

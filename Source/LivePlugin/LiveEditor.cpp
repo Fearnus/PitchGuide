@@ -251,7 +251,7 @@ private:
                                     ? "timed per word"
                                     : "timed per line");
             if (plain && !haveReference)
-                message << ". Load the reference vocal to place them.";
+                message << ". Load a reference to place them.";
             else if (!haveReference)
                 message << ". No reference: syllables are spread evenly.";
             else
@@ -281,8 +281,9 @@ PitchGuideLiveEditor::PitchGuideLiveEditor(PitchGuideLiveProcessor &p)
     addAndMakeVisible(view);
 
     loadButton.onClick = [this]() { chooseReference(); };
-    loadButton.setTooltip("Choose an isolated vocal of the song (wav, flac, mp3...). "
-                          "You can also drop it on the window.");
+    loadButton.setTooltip("Choose an isolated vocal of the song (wav, flac, mp3...) or a MIDI "
+                          "file of its melody. You can also drop it on the window. A MIDI file "
+                          "is read again whenever you save it.");
     addAndMakeVisible(loadButton);
 
     lyricsButton.onClick = [this]() { showLyrics(); };
@@ -450,9 +451,17 @@ void PitchGuideLiveEditor::updateHeader()
                              transpose == 0 ? juce::Colours::white : APP_COLOR_PRIMARY.brighter(0.4f));
 
     juce::String text;
+    auto colour = juce::Colours::white.withAlpha(0.75f);
     const auto &reference = liveProcessor.getReference();
     if (liveProcessor.isAnalysing())
         text = liveProcessor.getAnalysisMessage();
+    else if (reference.isLoaded() && liveProcessor.getLastError().isNotEmpty())
+    {
+        // A load or a MIDI re-read failed; the notes before it are still in
+        // use. (Without a reference the roll shows the error.)
+        text = liveProcessor.getLastError();
+        colour = juce::Colour(0xFFFF5C5Cu);
+    }
     else if (reference.isLoaded())
         text = juce::File(reference.sourcePath).getFileName() + "   (" +
                juce::String(static_cast<int>(reference.notes.size())) + " notes)";
@@ -460,6 +469,8 @@ void PitchGuideLiveEditor::updateHeader()
         text = "No reference loaded";
     if (referenceLabel.getText() != text)
         referenceLabel.setText(text, juce::dontSendNotification);
+    if (referenceLabel.findColour(juce::Label::textColourId) != colour)
+        referenceLabel.setColour(juce::Label::textColourId, colour);
     referenceLabel.setTooltip(reference.sourcePath);
 }
 
@@ -471,8 +482,8 @@ void PitchGuideLiveEditor::chooseReference()
             ? juce::File(reference.sourcePath).getParentDirectory()
             : juce::File::getSpecialLocation(juce::File::userMusicDirectory);
     chooser = std::make_unique<juce::FileChooser>(
-        "Choose the song's vocal", startDirectory,
-        "*.wav;*.flac;*.mp3;*.ogg;*.aif;*.aiff;*.m4a;*.wma");
+        "Choose the song's vocal or a MIDI file of its melody", startDirectory,
+        "*.wav;*.flac;*.mp3;*.ogg;*.aif;*.aiff;*.m4a;*.wma;*.mid;*.midi");
     chooser->launchAsync(juce::FileBrowserComponent::openMode |
                              juce::FileBrowserComponent::canSelectFiles,
                          [this](const juce::FileChooser &fc) {
@@ -519,9 +530,11 @@ void PitchGuideLiveEditor::showSettings()
                                            settingsButton.getBounds(), this);
 }
 
-bool PitchGuideLiveEditor::isAudioFile(const juce::String &path)
+bool PitchGuideLiveEditor::isReferenceFile(const juce::String &path)
 {
-    return juce::File(path).hasFileExtension("wav;flac;mp3;ogg;aif;aiff;m4a;wma");
+    const juce::File file(path);
+    return file.hasFileExtension("wav;flac;mp3;ogg;aif;aiff;m4a;wma") ||
+           KaraokeReference::isMidiFile(file);
 }
 
 bool PitchGuideLiveEditor::isLyricsFile(const juce::String &path)
@@ -531,7 +544,7 @@ bool PitchGuideLiveEditor::isLyricsFile(const juce::String &path)
 
 bool PitchGuideLiveEditor::isInterestedInFileDrag(const juce::StringArray &files)
 {
-    return files.size() == 1 && (isAudioFile(files[0]) || isLyricsFile(files[0]));
+    return files.size() == 1 && (isReferenceFile(files[0]) || isLyricsFile(files[0]));
 }
 
 void PitchGuideLiveEditor::fileDragEnter(const juce::StringArray &, int, int)
@@ -547,7 +560,7 @@ void PitchGuideLiveEditor::fileDragExit(const juce::StringArray &)
 void PitchGuideLiveEditor::filesDropped(const juce::StringArray &files, int, int)
 {
     view.setDropHighlight(false);
-    if (files.size() == 1 && isAudioFile(files[0]))
+    if (files.size() == 1 && isReferenceFile(files[0]))
         liveProcessor.loadReference(juce::File(files[0]));
     else if (files.size() == 1 && isLyricsFile(files[0]))
         liveProcessor.loadLyricsFile(juce::File(files[0]));
